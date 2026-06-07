@@ -95,9 +95,9 @@ def _score_once(
         # Validate expected keys
         required_keys = [
             "quantity", "quality", "emotions",
-            "quantity_justification",
-            "quality_justification",
-            "emotions_justification",
+            "quantity_quote", "quantity_explanation",
+            "quality_quote",  "quality_explanation",
+            "emotions_quote", "emotions_explanation",
         ]
         
         for key in required_keys:
@@ -207,22 +207,19 @@ def _score_conversation(
 
     # Justifications — take from run 1 (most stable at temperature=0)
     if runs:
-        row["quantity_justification"] = runs[0].get("quantity_justification", "")
-        row["quality_justification"]  = runs[0].get("quality_justification", "")
-        row["emotions_justification"] = runs[0].get("emotions_justification", "")
-        
-        # Key quotes — from run 1
-        quotes = runs[0].get("key_quotes", {})
-        row["quote_quantity"] = quotes.get("quantity", "")
-        row["quote_quality"]  = quotes.get("quality",  "")
-        row["quote_emotions"] = quotes.get("emotions", "")
+        row["quantity_quote"]       = runs[0].get("quantity_quote", "")
+        row["quantity_explanation"] = runs[0].get("quantity_explanation", "")
+        row["quality_quote"]        = runs[0].get("quality_quote", "")
+        row["quality_explanation"]  = runs[0].get("quality_explanation", "")
+        row["emotions_quote"]       = runs[0].get("emotions_quote", "")
+        row["emotions_explanation"] = runs[0].get("emotions_explanation", "")
     else:
-        row["quantity_justification"] = "All runs failed"
-        row["quality_justification"]  = "All runs failed"
-        row["emotions_justification"] = "All runs failed"
-        row["quote_quantity"] = ""
-        row["quote_quality"]  = ""
-        row["quote_emotions"] = ""
+        row["quantity_quote"]       = "All runs failed"
+        row["quantity_explanation"] = "All runs failed"
+        row["quality_quote"]        = "All runs failed"
+        row["quality_explanation"]  = "All runs failed"
+        row["emotions_quote"]       = "All runs failed"
+        row["emotions_explanation"] = "All runs failed"
 
     # Key verbatim: first non-empty participant message
     key_verbatim = ""
@@ -313,12 +310,12 @@ def run_gpt_scoring(df: pd.DataFrame) -> pd.DataFrame:
         "emotions_run1", "emotions_run2", "emotions_run3",
         "emotions_mean", "emotions_sd",
         "composite",
-        "quantity_justification",
-        "quote_quantity",
-        "quality_justification",
-        "quote_quality",
-        "emotions_justification",
-        "quote_emotions",
+        "quantity_quote",
+        "quantity_explanation",
+        "quality_quote",
+        "quality_explanation",
+        "emotions_quote",
+        "emotions_explanation",
         "key_verbatim",
     ]
     sheet_g = sheet_g[[c for c in col_order if c in sheet_g.columns]]
