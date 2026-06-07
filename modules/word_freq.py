@@ -3,71 +3,115 @@ word_freq.py
 ------------
 Step 5 of the pipeline: word frequencies and TF-IDF analysis.
 
-Bilingual processing (FR/EN):
-    - Detects language per participant response (from 'language' column)
-    - Applies language-specific stopwords
-    - Computes word frequencies and TF-IDF scores separately for:
-        * Participant messages only (not chatbot responses)
-        * By tone condition (friendly vs professional)
-        * By language (FR vs EN)
-    - Aggregates results into a single Sheet H DataFrame
+Four sections per output:
+    1. Participant messages — Friendly condition
+    2. Participant messages — Professional condition
+    3. Chatbot messages — Friendly condition
+    4. Chatbot messages — Professional condition
+
+Bilingual FR+EN processing:
+    - Combined stopwords FR + EN + custom study-specific terms
+    - TF-IDF on full corpus (no language split — honest with bilingual data)
+    - Top 50 word frequencies + top 30 TF-IDF terms per section
 """
 
 import logging
 import re
-import numpy as np
-import pandas as pd
 from collections import Counter
+
+import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
-from nltk.corpus import stopwords
 import nltk
+from nltk.corpus import stopwords
 
 import config
 
 log = logging.getLogger(__name__)
 
-# Download stopwords if not already present
+# Download stopwords if needed
 try:
     nltk.data.find("corpora/stopwords")
 except LookupError:
-    log.info("Downloading NLTK stopwords...")
     nltk.download("stopwords", quiet=True)
 
 # ---------------------------------------------------------------------------
-# Stopwords — FR + EN combined with custom additions
+# Stopwords — FR + EN + custom
 # ---------------------------------------------------------------------------
-FR_STOPWORDS = set(stopwords.words("french"))
-EN_STOPWORDS = set(stopwords.words("english"))
+FR_STOP = set(stopwords.words("french"))
+EN_STOP = set(stopwords.words("english"))
 
-# Custom additions specific to this study context
 CUSTOM_STOPWORDS = {
-    # French fillers
-    "c'est", "ca", "ça", "je", "tu", "il", "elle", "on", "nous", "vous",
-    "ils", "elles", "un", "une", "des", "le", "la", "les", "de", "du",
-    "en", "et", "ou", "mais", "donc", "or", "ni", "car", "que", "qui",
-    "quoi", "dont", "où", "pas", "plus", "très", "bien", "aussi", "tout",
-    "comme", "si", "quand", "même", "encore", "toujours", "jamais",
-    # English fillers
-    "i", "its", "it", "like", "just", "really", "also", "much", "lot",
-    "get", "use", "used", "using", "think", "know", "thing", "things",
-    "yeah", "yes", "okay", "ok", "kind", "sort", "bit",
-    # Platform-neutral terms (too generic to be informative)
-    "soundflow", "platform", "app", "application", "music", "spotify",
-    "apple", "youtube",
+    # Contractions FR
+    "c'est","c'était","j'ai","j'avais","j'aime","j'aimais","j'aimerais",
+    "j'aimerai","j'utilise","j'utilisais","j'aurais","j'espère","j'adore",
+    "n'est","n'a","n'y","qu'il","qu'elle","qu'on","qu'ils","qu'elles",
+    "qu'une","qu'un","lorsqu'il","lorsqu'on","puisqu'il","puisqu'on",
+    "t'as","t'en","c'en","s'il","s'en","m'a","m'en","d'un","d'une",
+    "d'abord","d'accord","d'ailleurs","d'autres","d'avoir","est-ce",
+    "qu'est-ce","a-t-il","avez-vous","pouvez-vous",
+    # Contractions EN
+    "i'm","i've","i'd","i'll","it's","it'd","it'll","that's","that'd",
+    "don't","didn't","doesn't","won't","wouldn't","can't","couldn't",
+    "isn't","aren't","wasn't","weren't","there's","there'd","they're",
+    "they've","they'd","they'll","we're","we've","we'd","we'll",
+    "you're","you've","you'd","you'll","he's","she's","let's","who's",
+    # Generic FR fillers
+    "merci","donc","alors","voilà","voila","bah","ben","bof","hein",
+    "quoi","hm","ah","oh","eh","bon","nan","ouais","ouai","yep",
+    "lorsque","puisque","tandis","pourtant","cependant","néanmoins",
+    "toutefois","notamment","également","ainsi","puis","ensuite","enfin",
+    "surtout","vraiment","totalement","complètement","absolument",
+    "franchement","honnêtement","clairement","exactement","effectivement",
+    "parfois","souvent","toujours","jamais","encore","déjà","maintenant",
+    "aujourd","hui","demain","hier","fois","moment","temps","jour","jours",
+    # Generic EN fillers
+    "merci","thank","thanks","thankyou","sharing","shared",
+    "okay","ok","yeah","yep","nope","well","actually","basically",
+    "honestly","literally","definitely","absolutely","exactly","clearly",
+    "sometimes","often","always","never","already","now","today",
+    "tomorrow","yesterday","time","moment","day","days","thing","things",
+    "something","someone","anything","nothing","everything","someone",
+    "much","many","every","really","just","maybe","sure","though",
+    "bit","lot","one","two","three","also","even","still","back",
+    "kind","sort","quite","rather","pretty","very","too","so","as",
+    # Study-specific terms (too generic to be informative)
+    "soundflow","platform","plateforme","application","app","streaming",
+    "spotify","apple","youtube","music","musique","song","songs",
+    "musiques","services","chatbot","survey","questionnaire",
+    "question","questions","réponse","réponses","answer","answers",
+    # Action verbs FR (too generic)
+    "faire","avoir","être","aller","venir","voir","savoir","pouvoir",
+    "vouloir","devoir","mettre","prendre","donner","parler","penser",
+    "trouver","utiliser","utilise","utilisez","utilises","ajouter",
+    "permet","partager","partage","apprécier","appréciez","apprécies",
+    "apprécie","commenter","commentaires","suggestions","connais","sais",
+    "laisser","essayer","chercher","regarder","écouter","continuer",
+    "changer","améliorer","proposer","demander","répondre","expliquer",
+    # Action verbs EN (too generic)
+    "make","makes","making","want","wanted","get","got","give","say",
+    "said","come","go","going","would","could","should","might","must",
+    "need","needs","needed","try","tried","look","looking","feel",
+    "feels","felt","seem","seems","seemed","mean","means","meant",
+    "know","knew","think","thought","find","found","use","used","using",
+    "let","put","take","keep","keep","start","stop","help","show",
+    # Pronouns and articles already in NLTK but adding variants
+    "je","tu","il","elle","on","nous","vous","ils","elles",
+    "le","la","les","un","une","des","du","de","en","au","aux",
+    "et","ou","ni","car","donc","or","mais","the","this","that",
+    "these","those","and","but","for","with","from","have","has",
+    "are","was","were","been","being","its","it","they","their",
+    "them","our","your","his","her","you","me","my","we","us",
+    "oui","non","yes","no","nan",
 }
 
-FR_STOPWORDS.update(CUSTOM_STOPWORDS)
-EN_STOPWORDS.update(CUSTOM_STOPWORDS)
+ALL_STOPWORDS = FR_STOP | EN_STOP | CUSTOM_STOPWORDS
 
 
 # ---------------------------------------------------------------------------
-# Text preprocessing
+# Text helpers
 # ---------------------------------------------------------------------------
 def _clean_text(text: str) -> str:
-    """
-    Lowercase, remove punctuation, numbers, and extra whitespace.
-    Preserves accented characters (important for French).
-    """
+    """Lowercase, remove punctuation and numbers, normalise whitespace."""
     text = text.lower()
     text = re.sub(r"[^\w\sàâäéèêëîïôùûüçœæ]", " ", text)
     text = re.sub(r"\d+", " ", text)
@@ -75,143 +119,109 @@ def _clean_text(text: str) -> str:
     return text
 
 
-def _extract_participant_text(transcript: str) -> str:
+def _extract_messages(transcript: str, speaker: str) -> str:
     """
-    Extract only participant messages from a transcript.
-    Ignores lines starting with [Chatbot].
-    """
-    lines = transcript.split("\n")
-    participant_lines = [
-        line.replace("[Participant]", "").strip()
-        for line in lines
-        if line.startswith("[Participant]")
-    ]
-    return " ".join(participant_lines)
-
-
-def _tokenize(text: str, lang: str) -> list:
-    """
-    Tokenize cleaned text and remove stopwords for the given language.
+    Extract messages from a specific speaker in a transcript.
 
     Args:
-        text: Cleaned text string
-        lang: "FR" or "EN"
+        transcript: Full conversation transcript string
+        speaker:    "Participant" or "Chatbot"
 
     Returns:
-        List of meaningful tokens
+        Concatenated messages from that speaker
     """
-    stopwords_set = FR_STOPWORDS if lang == "FR" else EN_STOPWORDS
-    tokens = text.split()
-    return [t for t in tokens if t not in stopwords_set and len(t) > 2]
+    tag   = f"[{speaker}]"
+    lines = transcript.split("\n")
+    msgs  = [
+        line.replace(tag, "").strip()
+        for line in lines
+        if line.startswith(tag)
+    ]
+    return " ".join(msgs)
+
+
+def _tokenize(text: str) -> list:
+    """Tokenize and remove stopwords. Min token length = 3."""
+    tokens = _clean_text(text).split()
+    return [t for t in tokens if t not in ALL_STOPWORDS and len(t) >= 3]
 
 
 # ---------------------------------------------------------------------------
-# Word frequency analysis
+# Word frequency
 # ---------------------------------------------------------------------------
-def _word_frequencies(
-    texts: list,
-    lang: str,
-    top_n: int = 50,
-) -> pd.DataFrame:
+def _word_frequencies(texts: list, top_n: int = 50) -> pd.DataFrame:
     """
     Compute word frequencies for a list of texts.
 
-    Args:
-        texts: List of raw transcript strings
-        lang:  Language code ("FR" or "EN")
-        top_n: Number of top words to return
-
-    Returns:
-        DataFrame with columns: word, frequency, rank
+    Returns DataFrame with columns: rank, word, frequency
     """
     all_tokens = []
     for text in texts:
-        cleaned = _clean_text(_extract_participant_text(text))
-        tokens  = _tokenize(cleaned, lang)
-        all_tokens.extend(tokens)
+        all_tokens.extend(_tokenize(text))
 
     if not all_tokens:
-        return pd.DataFrame(columns=["word", "frequency", "rank"])
+        return pd.DataFrame(columns=["rank", "word", "frequency"])
 
     counts = Counter(all_tokens)
     top    = counts.most_common(top_n)
 
     return pd.DataFrame(
-        [(word, freq, rank + 1) for rank, (word, freq) in enumerate(top)],
-        columns=["word", "frequency", "rank"],
+        [{"rank": i+1, "word": w, "frequency": f} for i, (w, f) in enumerate(top)]
     )
 
 
 # ---------------------------------------------------------------------------
-# TF-IDF analysis
+# TF-IDF
 # ---------------------------------------------------------------------------
-def _tfidf_analysis(
-    texts: list,
-    lang: str,
-    top_n: int = 30,
-) -> pd.DataFrame:
+def _tfidf_analysis(texts: list, top_n: int = 30) -> pd.DataFrame:
     """
-    Compute TF-IDF scores for a corpus of texts.
+    Compute TF-IDF scores for a corpus.
 
-    Args:
-        texts: List of raw transcript strings
-        lang:  Language code ("FR" or "EN")
-        top_n: Number of top terms to return
-
-    Returns:
-        DataFrame with columns: term, tfidf_mean, tfidf_max, document_freq
+    Returns DataFrame with columns: rank, term, tfidf_mean, tfidf_max, document_freq
     """
-    stopwords_set = FR_STOPWORDS if lang == "FR" else EN_STOPWORDS
+    cleaned = [_clean_text(t) for t in texts if t.strip()]
+    cleaned = [t for t in cleaned if t.strip()]
 
-    # Extract and clean participant text only
-    cleaned_texts = [
-        _clean_text(_extract_participant_text(t))
-        for t in texts
-    ]
-
-    # Filter empty texts
-    cleaned_texts = [t for t in cleaned_texts if t.strip()]
-    if len(cleaned_texts) < 2:
-        log.warning(f"TF-IDF ({lang}): fewer than 2 documents — skipped.")
+    if len(cleaned) < 2:
+        log.warning("TF-IDF: fewer than 2 documents — skipped.")
         return pd.DataFrame(
-            columns=["term", "tfidf_mean", "tfidf_max", "document_freq"]
+            columns=["rank", "term", "tfidf_mean", "tfidf_max", "document_freq"]
         )
 
     vectorizer = TfidfVectorizer(
-        stop_words=list(stopwords_set),
-        min_df=2,           # term must appear in at least 2 documents
-        max_df=0.85,        # ignore terms in more than 85% of documents
-        ngram_range=(1, 2), # unigrams and bigrams
-        token_pattern=r"(?u)\b[a-zA-ZàâäéèêëîïôùûüçœæÀÂÄÉÈÊËÎÏÔÙÛÜÇŒÆ]{3,}\b",
+        stop_words=list(ALL_STOPWORDS),
+        min_df=2,
+        max_df=0.85,
+        ngram_range=(1, 2),
+        token_pattern=(
+            r"(?u)\b[a-zA-ZàâäéèêëîïôùûüçœæÀÂÄÉÈÊËÎÏÔÙÛÜÇŒÆ]{3,}\b"
+        ),
     )
 
     try:
-        tfidf_matrix = vectorizer.fit_transform(cleaned_texts)
+        matrix       = vectorizer.fit_transform(cleaned)
     except ValueError as e:
-        log.warning(f"TF-IDF ({lang}): vectorizer error — {e}")
+        log.warning(f"TF-IDF vectorizer error: {e}")
         return pd.DataFrame(
-            columns=["term", "tfidf_mean", "tfidf_max", "document_freq"]
+            columns=["rank", "term", "tfidf_mean", "tfidf_max", "document_freq"]
         )
 
-    feature_names = vectorizer.get_feature_names_out()
-    tfidf_array   = tfidf_matrix.toarray()
-
-    # Compute summary stats per term
-    tfidf_mean   = tfidf_array.mean(axis=0)
-    tfidf_max    = tfidf_array.max(axis=0)
-    doc_freq     = (tfidf_array > 0).sum(axis=0)
-
-    # Sort by mean TF-IDF score
-    top_indices = tfidf_mean.argsort()[::-1][:top_n]
+    features     = vectorizer.get_feature_names_out()
+    arr          = matrix.toarray()
+    tfidf_mean   = arr.mean(axis=0)
+    tfidf_max    = arr.max(axis=0)
+    doc_freq     = (arr > 0).sum(axis=0)
+    top_indices  = tfidf_mean.argsort()[::-1][:top_n]
 
     return pd.DataFrame([
         {
-            "term":          feature_names[i],
-            "tfidf_mean":    round(tfidf_mean[i], 4),
-            "tfidf_max":     round(tfidf_max[i],  4),
-            "document_freq": int(doc_freq[i]),
+            "rank":         i + 1,
+            "term":         features[idx],
+            "tfidf_mean":   round(tfidf_mean[idx], 4),
+            "tfidf_max":    round(tfidf_max[idx],  4),
+            "document_freq": int(doc_freq[idx]),
         }
-        for i in top_indices
+        for i, idx in enumerate(top_indices)
     ])
 
 
@@ -220,24 +230,25 @@ def _tfidf_analysis(
 # ---------------------------------------------------------------------------
 def run_word_freq(df: pd.DataFrame) -> dict:
     """
-    Run word frequency and TF-IDF analyses on participant transcripts.
+    Run word frequency and TF-IDF analyses on conversation transcripts.
 
-    Produces 6 sub-tables for Sheet H:
-        1. Word frequencies — FR participants
-        2. Word frequencies — EN participants
-        3. Word frequencies — Friendly condition
-        4. Word frequencies — Professional condition
-        5. TF-IDF — Friendly vs Professional (FR)
-        6. TF-IDF — Friendly vs Professional (EN)
+    Produces 4 sections:
+        1. Participant messages — Friendly condition
+        2. Participant messages — Professional condition
+        3. Chatbot messages — Friendly condition
+        4. Chatbot messages — Professional condition
+
+    Each section contains:
+        - Word frequency table (top 50)
+        - TF-IDF table (top 30)
 
     Args:
-        df: DataFrame with columns: transcript, language, tone
+        df: DataFrame with columns: transcript, tone
 
     Returns:
-        Dict of DataFrames keyed by sub-table name.
-        export.py will write each as a labelled section in Sheet H.
+        Dict of DataFrames keyed by section name.
     """
-    required = ["transcript", "language", "tone"]
+    required = ["transcript", "tone"]
     missing  = [c for c in required if c not in df.columns]
     if missing:
         log.error(f"Sheet H: missing columns {missing}")
@@ -245,86 +256,48 @@ def run_word_freq(df: pd.DataFrame) -> dict:
 
     results = {}
 
-    # ------------------------------------------------------------------
-    # Split by language
-    # ------------------------------------------------------------------
-    df_fr = df[df["language"] == "FR"].copy()
-    df_en = df[df["language"] == "EN"].copy()
+    sections = [
+        ("participant_friendly", "Participant", 1, "Friendly"),
+        ("participant_pro",      "Participant", 0, "Professional"),
+        ("chatbot_friendly",     "Chatbot",     1, "Friendly"),
+        ("chatbot_pro",          "Chatbot",     0, "Professional"),
+    ]
 
-    log.info(
-        f"Sheet H: {len(df_fr)} FR responses, {len(df_en)} EN responses."
-    )
+    for key, speaker, tone_val, tone_label in sections:
+        df_cond = df[df["tone"] == tone_val].copy()
 
-    # ------------------------------------------------------------------
-    # 1 & 2 — Word frequencies by language
-    # ------------------------------------------------------------------
-    if len(df_fr) > 0:
-        results["freq_FR"] = _word_frequencies(
-            df_fr["transcript"].tolist(), lang="FR"
-        )
-        results["freq_FR"]["language"] = "FR"
-    else:
-        log.warning("Sheet H: no FR responses found.")
-
-    if len(df_en) > 0:
-        results["freq_EN"] = _word_frequencies(
-            df_en["transcript"].tolist(), lang="EN"
-        )
-        results["freq_EN"]["language"] = "EN"
-    else:
-        log.warning("Sheet H: no EN responses found.")
-
-    # ------------------------------------------------------------------
-    # 3 & 4 — Word frequencies by tone condition
-    # ------------------------------------------------------------------
-    for tone_val, tone_label in config.TONE_LABELS.items():
-        df_tone = df[df["tone"] == tone_val].copy()
-        if len(df_tone) == 0:
+        if len(df_cond) == 0:
+            log.warning(f"Sheet H: no data for {tone_label} condition — skipped.")
             continue
 
-        # Detect dominant language in this condition
-        lang_counts = df_tone["language"].value_counts()
-        dominant_lang = lang_counts.index[0] if len(lang_counts) > 0 else "EN"
+        # Extract messages for this speaker
+        texts = [
+            _extract_messages(t, speaker)
+            for t in df_cond["transcript"].tolist()
+        ]
+        texts = [t for t in texts if t.strip()]
 
-        key = f"freq_tone_{tone_label.lower()}"
-        results[key] = _word_frequencies(
-            df_tone["transcript"].tolist(), lang=dominant_lang
-        )
-        results[key]["tone"] = tone_label
+        if not texts:
+            log.warning(f"Sheet H: no {speaker} messages in {tone_label} — skipped.")
+            continue
+
         log.info(
-            f"Sheet H: word frequencies for {tone_label} condition "
-            f"({len(df_tone)} participants)."
+            f"Sheet H: {speaker} / {tone_label} — "
+            f"{len(texts)} conversations"
         )
 
-    # ------------------------------------------------------------------
-    # 5 & 6 — TF-IDF by tone condition, split by language
-    # ------------------------------------------------------------------
-    for lang in ["FR", "EN"]:
-        df_lang = df[df["language"] == lang].copy()
-        if len(df_lang) < 4:
-            log.warning(
-                f"Sheet H: TF-IDF ({lang}) — fewer than 4 responses, skipped."
-            )
-            continue
+        # Word frequencies
+        freq_df = _word_frequencies(texts)
+        freq_df["speaker"]   = speaker
+        freq_df["condition"] = tone_label
 
-        df_friendly = df_lang[df_lang["tone"] == 1]
-        df_pro      = df_lang[df_lang["tone"] == 0]
+        # TF-IDF
+        tfidf_df = _tfidf_analysis(texts)
+        tfidf_df["speaker"]   = speaker
+        tfidf_df["condition"] = tone_label
 
-        if len(df_friendly) >= 2:
-            key = f"tfidf_friendly_{lang}"
-            results[key] = _tfidf_analysis(
-                df_friendly["transcript"].tolist(), lang=lang
-            )
-            results[key]["condition"] = "Friendly"
-            results[key]["language"]  = lang
-
-        if len(df_pro) >= 2:
-            key = f"tfidf_pro_{lang}"
-            results[key] = _tfidf_analysis(
-                df_pro["transcript"].tolist(), lang=lang
-            )
-            results[key]["condition"] = "Professional"
-            results[key]["language"]  = lang
+        results[f"{key}_freq"]  = freq_df
+        results[f"{key}_tfidf"] = tfidf_df
 
     log.info(f"Sheet H: {len(results)} sub-tables generated.")
     return results
