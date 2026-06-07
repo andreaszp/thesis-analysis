@@ -103,9 +103,8 @@ def load_and_clean(data_path: str) -> pd.DataFrame:
 
     # ------------------------------------------------------------------
     # 5. Filter incomplete responses
-    # Three criteria, applied in order:
-    #   a) Progress = 100 (completed the full survey)
-    #   b) Finished = 1 (Qualtrics completion flag)
+    #   a) Progress = 100
+    #   b) Finished = 1
     #   c) At least 1 message sent to the chatbot
     # ------------------------------------------------------------------
 
@@ -126,6 +125,7 @@ def load_and_clean(data_path: str) -> pd.DataFrame:
             log.info(f"Dropped {dropped} incomplete response(s) (Finished != 1)")
 
     # c) At least 1 message sent to the chatbot
+    # NOTE: applied AFTER column renaming so msg_1...msg_20 are present
     msg_cols_present = [c for c in config.MSG_COLS if c in df.columns]
     if msg_cols_present:
         before = len(df)
@@ -139,9 +139,11 @@ def load_and_clean(data_path: str) -> pd.DataFrame:
         dropped = before - len(df)
         if dropped > 0:
             log.info(
-                f"Dropped {dropped} participant(s) with no chatbot message "
-                f"(JavaScript tracking data missing)"
+                f"Dropped {dropped} participant(s) with no chatbot message"
             )
+    else:
+        log.warning("No msg columns found — cannot filter empty conversations")
+        
     # ------------------------------------------------------------------
     # 6. Cast Likert scale columns to numeric (integer)
     # Out-of-range values (outside 1–7) are set to NaN with a warning.
