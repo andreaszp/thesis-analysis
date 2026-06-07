@@ -73,7 +73,17 @@ def run_all_analyses(df: pd.DataFrame) -> dict:
 
     return results
 
-
+def _get_predictors_for_scale(scale_name: str) -> list:
+    """
+    Return the right variable(s) for a scale based on Cronbach's alpha.
+    If composite validated (alpha >= 0.70) → [scale_score]
+    If items separate (alpha < 0.70)       → individual items
+    """
+    status = getattr(config, 'SCALE_STATUS', {}).get(scale_name, 'separate')
+    if status == 'composite':
+        return [f"{scale_name}_score"]
+    else:
+        return config.SCALE_ITEMS.get(scale_name, [])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -342,33 +352,32 @@ def run_sheet_b(df: pd.DataFrame) -> pd.DataFrame:
 def run_sheet_c(df: pd.DataFrame) -> pd.DataFrame:
     """
     Simple OLS regressions between AI perception variables.
-    All defined a priori — not selected based on Sheet A results.
-
-    Regressions:
-        Ind_score  → PM_score
-        Ind_score  → MA_score   (H4)
-        Ind_score  → MP_score
-        Comp_score → PM_score
-        MA_score   → PM_score
-        MP_score   → PM_score
-        Comp_score → MA_score
-        Comp_score → MP_score
-
-    Columns: IV, DV, β, SE, t, p, R², F, Sig.
+    Adaptive: uses composite or separate items based on Cronbach's alpha.
     """
-    regressions = [
-        ("Ind_score",  "PM_score"),
-        ("Ind_score",  "MA_score"),
-        ("Ind_score",  "MP_score"),
-        ("Comp_score", "PM_score"),
-        ("MA_score",   "PM_score"),
-        ("MP_score",   "PM_score"),
-        ("Comp_score", "MA_score"),
-        ("Comp_score", "MP_score"),
-    ]
+    ind  = _get_predictors_for_scale("Ind")
+    ma   = _get_predictors_for_scale("MA")
+    mp   = _get_predictors_for_scale("MP")
+    comp = _get_predictors_for_scale("Comp")
+    pm   = _get_predictors_for_scale("PM")
+
+    regressions = []
+    for iv in ind:
+        for dv in pm:  regressions.append((iv, dv, ""))
+        for dv in ma:  regressions.append((iv, dv, "H4"))
+        for dv in mp:  regressions.append((iv, dv, ""))
+    for iv in comp:
+        for dv in pm:  regressions.append((iv, dv, ""))
+        for dv in ma:  regressions.append((iv, dv, ""))
+        for dv in mp:  regressions.append((iv, dv, ""))
+    for iv in ma:
+        for dv in pm:  regressions.append((iv, dv, ""))
+    for iv in mp:
+        for dv in pm:  regressions.append((iv, dv, ""))
 
     rows = []
-    for iv, dv in regressions:
+    for reg in regressions:
+        iv, dv, note = reg[0], reg[1], reg[2]
+
         if iv not in df.columns or dv not in df.columns:
             log.warning(f"Sheet C: skipping {iv} → {dv} (column missing)")
             continue
@@ -380,25 +389,18 @@ def run_sheet_c(df: pd.DataFrame) -> pd.DataFrame:
 
         formula = f"{dv} ~ {iv}"
         model   = ols(formula, data=clean).fit()
-        beta    = model.params[iv]
-        se      = model.bse[iv]
-        t_val   = model.tvalues[iv]
-        p_val   = model.pvalues[iv]
-        r2      = model.rsquared
-        f_stat  = model.fvalue
-        f_p     = model.f_pvalue
-        note    = " (H4)" if iv == "Ind_score" and dv == "MA_score" else ""
 
+        label = f"{iv}{' (H4)' if note == 'H4' else ''}"
         rows.append({
-            "IV":   iv + note,
+            "IV":   label,
             "DV":   dv,
-            "β":    round(beta, 3),
-            "SE":   round(se, 3),
-            "t":    round(t_val, 3),
-            "p":    round(p_val, 4),
-            "R²":   round(r2, 3),
-            "F":    round(f_stat, 3),
-            "Sig.": _sig_label(p_val),
+            "β":    round(model.params[iv], 3),
+            "SE":   round(model.bse[iv], 3),
+            "t":    round(model.tvalues[iv], 3),
+            "p":    round(model.pvalues[iv], 4),
+            "R²":   round(model.rsquared, 3),
+            "F":    round(model.fvalue, 3),
+            "Sig.": _sig_label(model.pvalues[iv]),
         })
 
     result = pd.DataFrame(rows)
@@ -411,22 +413,23 @@ def run_sheet_c(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 def run_sheet_d(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Hierarchical multiple regressions for composite and engagement_score.
-    Three blocks per DV, defined a priori.
-
-    Block 1: tone
-    Block 2: tone + PM_score + Comp_score + Ind_score + MA_score + MP_score
-    Block 3: tone + all AI perceptions + E1 + E2
-
-    Columns: DV, Block, Predictor, β, SE, t, p, R², ΔR², F_change, Sig.
+    Hierarchical regressions for composite and engagement_score.
+    Adaptive predictors based on Cronbach's alpha results.
     """
+    ai_preds = (
+        _get_predictors_for_scale("PM") +
+        _get_predictors_for_scale("Comp") +
+        _get_predictors_for_scale("Ind") +
+        _get_predictors_for_scale("MA") +
+        _get_predictors_for_scale("MP")
+    )
+
     dvs = ["composite", "engagement_score"]
 
     blocks = [
         ["tone"],
-        ["tone", "PM_score", "Comp_score", "Ind_score", "MA_score", "MP_score"],
-        ["tone", "PM_score", "Comp_score", "Ind_score", "MA_score", "MP_score",
-         "E1", "E2"],
+        ["tone"] + ai_preds,
+        ["tone"] + ai_preds + ["E1", "E2"],
     ]
 
     return _hierarchical_regression(df, dvs, blocks, sheet_name="D")
@@ -437,26 +440,26 @@ def run_sheet_d(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 def run_sheet_e(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Hierarchical multiple regressions for E3, E4, E5, E6.
-    Three blocks per DV, defined a priori.
-
-    Block 1: tone
-    Block 2: tone + PM_score + Comp_score + Ind_score + MA_score + MP_score
-    Block 3: tone + all AI perceptions + composite + engagement_score
-
-    Columns: DV, Block, Predictor, β, SE, t, p, R², ΔR², F_change, Sig.
+    Hierarchical regressions for E3, E4, E5, E6.
+    Adaptive predictors based on Cronbach's alpha results.
     """
+    ai_preds = (
+        _get_predictors_for_scale("PM") +
+        _get_predictors_for_scale("Comp") +
+        _get_predictors_for_scale("Ind") +
+        _get_predictors_for_scale("MA") +
+        _get_predictors_for_scale("MP")
+    )
+
     dvs = ["E3", "E4", "E5", "E6"]
 
     blocks = [
         ["tone"],
-        ["tone", "PM_score", "Comp_score", "Ind_score", "MA_score", "MP_score"],
-        ["tone", "PM_score", "Comp_score", "Ind_score", "MA_score", "MP_score",
-         "composite", "engagement_score"],
+        ["tone"] + ai_preds,
+        ["tone"] + ai_preds + ["composite", "engagement_score"],
     ]
 
     return _hierarchical_regression(df, dvs, blocks, sheet_name="E")
-
 
 # ---------------------------------------------------------------------------
 # Shared hierarchical regression function
@@ -575,26 +578,114 @@ def _hierarchical_regression(
 # ---------------------------------------------------------------------------
 def run_sheet_f(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Simple and serial mediation analyses using PyProcessMacro.
-    5000 bootstrap iterations, bias-corrected 95% CI.
-    FDR correction (Benjamini-Hochberg) applied across all indirect effects.
-
-    Series 1 — Tone as IV (15 models)
-    Series 2 — AI Perceptions as IV (15 models)
-
-    Columns: Series, IV, Mediator, DV, n, a, b, c, c_prime,
-             Indirect, CI_low, CI_high, p_fdr, Sig., Type,
-             r_IV_M, r_IV_DV, r_M_DV
+    Mediation analyses — adaptive based on Cronbach's alpha results.
     """
     try:
         from pyprocessmacro import Process
     except ImportError:
-        log.error(
-            "pyprocessmacro not installed. "
-            "Run: pip install pyprocessmacro"
-        )
+        log.error("pyprocessmacro not installed.")
         return pd.DataFrame({"error": ["pyprocessmacro not installed"]})
 
+    ind  = _get_predictors_for_scale("Ind")
+    ma   = _get_predictors_for_scale("MA")
+    mp   = _get_predictors_for_scale("MP")
+    comp = _get_predictors_for_scale("Comp")
+    pm   = _get_predictors_for_scale("PM")
+
+    models = []
+
+    # Series 1 — Tone as IV
+    for p in pm:
+        models += [
+            ("tone", p, "composite",        "1"),
+            ("tone", p, "engagement_score", "1"),
+            ("tone", p, "E3",               "1"),
+            ("tone", p, "E4",               "1"),
+            ("tone", p, "E5",               "1"),
+            ("tone", p, "E6",               "1"),
+        ]
+    for p in comp: models.append(("tone", p, "composite", "1"))
+    for p in ma:   models.append(("tone", p, "composite", "1"))
+    for p in mp:   models.append(("tone", p, "composite", "1"))
+    for pp in ["PP1","PP2","PP3","PP4","PP5"]:
+        for p in pm:
+            models.append(("tone", pp, p, "1"))
+
+    # Series 2 — AI Perceptions as IV
+    for p in pm:
+        models += [
+            (p, "E2",            "composite", "2"),
+            (p, "emotions_mean", "composite", "2"),
+        ]
+    for p in ind:
+        for q in pm: models.append((p, q, "composite", "2"))
+        for q in ma: models.append((p, q, "composite", "2"))
+        for q in mp: models.append((p, q, "composite", "2"))
+    for p in comp:
+        for q in ma:
+            for dv in ["E3","E4","E5","E6"]:
+                models.append((p, q, dv, "2"))
+        for q in mp:
+            for dv in ["E3","E4","E5","E6"]:
+                models.append((p, q, dv, "2"))
+    for p in ma:
+        for q in pm: models.append((p, q, "composite", "2"))
+    for p in mp:
+        for q in pm: models.append((p, q, "composite", "2"))
+
+    # Chain mediations
+    chain_models = []
+    for i in ind:
+        for p in pm:
+            chain_models.append(("tone", [i, p], "composite", "1"))
+
+    rows = []
+    for iv, med, dv, series in models:
+        row = _run_simple_mediation(df, iv, med, dv, series, Process)
+        if row:
+            rows.append(row)
+
+    for iv, mediators, dv, series in chain_models:
+        row = _run_chain_mediation(df, iv, mediators, dv, series, Process)
+        if row:
+            rows.append(row)
+
+    if not rows:
+        return pd.DataFrame()
+
+    result = pd.DataFrame(rows)
+
+    # FDR correction
+    p_vals = []
+    for _, r in result.iterrows():
+        ci_low  = r.get("CI_low", np.nan)
+        ci_high = r.get("CI_high", np.nan)
+        if pd.notna(ci_low) and pd.notna(ci_high):
+            excludes_zero = (ci_low > 0) or (ci_high < 0)
+            p_vals.append(0.01 if excludes_zero else 0.50)
+        else:
+            p_vals.append(np.nan)
+
+    valid_mask = [not np.isnan(p) for p in p_vals]
+    valid_ps   = [p for p, m in zip(p_vals, valid_mask) if m]
+
+    if valid_ps:
+        corrected      = _fdr_correct(valid_ps)
+        corrected_iter = iter(corrected)
+        result["p_fdr"] = [
+            round(next(corrected_iter), 4) if m else np.nan
+            for m in valid_mask
+        ]
+    else:
+        result["p_fdr"] = np.nan
+
+    result["Sig."] = result["p_fdr"].apply(
+        lambda p: _sig_label(p) if pd.notna(p) else "ns"
+    )
+
+    log.info(f"Sheet F: {len(result)} mediation models run.")
+    return result
+    
     # ------------------------------------------------------------------
     # Define all mediation models a priori
     # (iv, mediator, dv, series_label)
