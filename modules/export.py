@@ -1,24 +1,25 @@
 """
 export.py
 ---------
-Final step of the pipeline: write all analysis results to a
-single well-formatted Excel file.
+Final step: write all results to a single formatted Excel file.
 
-Responsibilities:
-    - Write each sheet in the correct order (L→K→J→A→B→C→D→E→F→G→H→I)
-    - Apply consistent formatting: bold headers, color blocks,
-      highlighted significant results, alternating row colors
-    - Handle Sheet H (dict of sub-tables) as labelled sections
-    - Auto-fit column widths for readability
+Sheet order:
+    Table of Contents → Variable Definitions → Cleaned Data →
+    Correlations → Effect of Tone → AI Perception Regressions →
+    Predictors of Feedback Quality → Predictors of Chatbot Evaluation →
+    Mediation Analyses → GPT Scoring → Word Frequencies →
+    Demographics & Robustness
+
+Each analysis sheet has:
+    - A RECAP table at the top (significant results only)
+    - The full results table below
 """
 
 import logging
 import numpy as np
 import pandas as pd
 from openpyxl import Workbook
-from openpyxl.styles import (
-    PatternFill, Font, Alignment, Border, Side
-)
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 import config
@@ -27,7 +28,7 @@ log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Color fills (pre-built from config.COLORS)
+# Fills and styles
 # ---------------------------------------------------------------------------
 def _fill(hex_color: str) -> PatternFill:
     return PatternFill(
@@ -38,35 +39,47 @@ def _fill(hex_color: str) -> PatternFill:
 
 FILLS = {k: _fill(v) for k, v in config.COLORS.items()}
 
-# Thin border for header row
 THIN_BORDER = Border(
-    bottom=Side(style="thin", color="AAAAAA")
+    bottom=Side(style="thin", color="CCCCCC")
 )
 
-# ---------------------------------------------------------------------------
-# Block color mapping — which fill to use per variable block
-# ---------------------------------------------------------------------------
 BLOCK_FILLS = {
-    "AI Perceptions":      FILLS["block_ai"],
+    "AI Perceptions":        FILLS["block_ai"],
     "Perceived Personality": FILLS["block_personality"],
-    "Chatbot Evaluation":  FILLS["block_eval"],
-    "Quality & Engagement": FILLS["block_quality"],
-    "H3 — Hypothesis test": FILLS["block_ai"],
-    "DEMOGRAPHICS":        FILLS["block_demo"],
-    "Descriptives":        FILLS["block_demo"],
-    "ANCOVA":              FILLS["block_engage"],
+    "Chatbot Evaluation":    FILLS["block_eval"],
+    "Quality & Engagement":  FILLS["block_quality"],
+    "H3":                    FILLS["block_ai"],
+    "DEMOGRAPHICS":          FILLS["block_demo"],
+    "Descriptives":          FILLS["block_demo"],
+    "ANCOVA":                FILLS["block_engage"],
 }
 
 
 # ---------------------------------------------------------------------------
-# Core formatting helpers
+# Cell helpers
 # ---------------------------------------------------------------------------
-def _style_header_row(ws, row_num: int, n_cols: int) -> None:
-    """Apply dark navy background + white bold font to a header row."""
+def _write_value(cell, value) -> None:
+    """Write a value to a cell, converting numpy types."""
+    if isinstance(value, (np.integer,)):
+        cell.value = int(value)
+    elif isinstance(value, (np.floating,)):
+        cell.value = float(value) if not np.isnan(value) else None
+    elif isinstance(value, float) and np.isnan(value):
+        cell.value = None
+    elif isinstance(value, bool):
+        cell.value = str(value)
+    else:
+        cell.value = value if value is not None else None
+
+
+def _style_header(ws, row_num: int, n_cols: int,
+                  bg: str = None) -> None:
+    """Style a header row."""
+    bg = bg or config.COLORS["header_bg"]
     for col in range(1, n_cols + 1):
-        cell = ws.cell(row=row_num, column=col)
-        cell.fill = FILLS["header_bg"]
-        cell.font = Font(
+        cell       = ws.cell(row=row_num, column=col)
+        cell.fill  = _fill(bg)
+        cell.font  = Font(
             bold=True,
             color=config.COLORS["header_font"],
             size=10,
@@ -77,27 +90,17 @@ def _style_header_row(ws, row_num: int, n_cols: int) -> None:
             wrap_text=True,
         )
         cell.border = THIN_BORDER
+    ws.row_dimensions[row_num].height = 30
 
 
-def _style_data_row(
-    ws,
-    row_num: int,
-    n_cols: int,
-    alt: bool = False,
-    block_fill: PatternFill = None,
-    highlight: bool = False,
-) -> None:
-    """
-    Style a data row:
-        - Significant results → yellow highlight
-        - Block color if provided
-        - Alternating light blue rows otherwise
-    """
+def _style_data_row(ws, row_num: int, n_cols: int,
+                    alt: bool = False,
+                    block_fill: PatternFill = None,
+                    highlight: bool = False) -> None:
     for col in range(1, n_cols + 1):
-        cell = ws.cell(row=row_num, column=col)
-        cell.font = Font(size=10)
+        cell           = ws.cell(row=row_num, column=col)
+        cell.font      = Font(size=10)
         cell.alignment = Alignment(vertical="center", wrap_text=True)
-
         if highlight:
             cell.fill = FILLS["sig_highlight"]
         elif block_fill:
@@ -106,40 +109,32 @@ def _style_data_row(
             cell.fill = FILLS["alt_row"]
 
 
-def _autofit_columns(ws, min_width: int = 10, max_width: int = 45) -> None:
-    """Auto-fit column widths based on content length."""
+def _autofit(ws, min_w: int = 10, max_w: int = 45) -> None:
     for col in ws.columns:
         max_len = 0
         col_letter = get_column_letter(col[0].column)
         for cell in col:
             try:
-                cell_len = len(str(cell.value)) if cell.value else 0
-                max_len  = max(max_len, cell_len)
+                max_len = max(max_len, len(str(cell.value or "")))
             except Exception:
                 pass
-        adjusted = min(max(max_len + 2, min_width), max_width)
-        ws.column_dimensions[col_letter].width = adjusted
+        ws.column_dimensions[col_letter].width = min(
+            max(max_len + 2, min_w), max_w
+        )
 
 
-def _freeze_header(ws) -> None:
-    """Freeze the first row (header)."""
+def _freeze(ws) -> None:
     ws.freeze_panes = "A2"
 
 
-def _is_significant(row: pd.Series) -> bool:
-    """
-    Return True if the row contains a significant result.
-    Checks 'Sig.' column for *, **, *** or 'p_fdr'/'p' < 0.05.
-    """
+def _is_sig(row: pd.Series) -> bool:
     if "Sig." in row.index:
-        sig = str(row["Sig."])
-        if any(s in sig for s in ["*"]):
+        if "*" in str(row["Sig."]):
             return True
-    for p_col in ["p_fdr", "p"]:
+    for p_col in ["p_fdr", "p", "p-value"]:
         if p_col in row.index:
             try:
-                p_val = float(row[p_col])
-                if p_val < config.ALPHA:
+                if float(row[p_col]) < config.ALPHA:
                     return True
             except (ValueError, TypeError):
                 pass
@@ -147,212 +142,332 @@ def _is_significant(row: pd.Series) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Generic sheet writer
+# Section title helper
 # ---------------------------------------------------------------------------
-def _write_sheet(
-    ws,
-    df: pd.DataFrame,
-    block_col: str = "Block",
-    use_sig_highlight: bool = True,
-    use_block_colors: bool = False,
-) -> None:
-    """
-    Write a DataFrame to an openpyxl worksheet with full formatting.
+def _write_section_title(ws, row_num: int, title: str,
+                          n_cols: int, color: str = "1F3864") -> int:
+    """Write a bold section title spanning all columns. Returns next row."""
+    cell       = ws.cell(row=row_num, column=1)
+    cell.value = title
+    cell.font  = Font(bold=True, size=11, color="FFFFFF")
+    cell.fill  = _fill(color)
+    cell.alignment = Alignment(vertical="center")
+    ws.row_dimensions[row_num].height = 22
+    # Blank out remaining cells in the row
+    for col in range(2, n_cols + 1):
+        ws.cell(row=row_num, column=col).fill = _fill(color)
+    return row_num + 1
 
-    Args:
-        ws:                 openpyxl Worksheet object
-        df:                 DataFrame to write
-        block_col:          Column name used to determine block fill color
-        use_sig_highlight:  Highlight significant rows in yellow
-        use_block_colors:   Apply block-level background colors
+
+# ---------------------------------------------------------------------------
+# Generic DataFrame writer
+# ---------------------------------------------------------------------------
+def _write_df(ws, df: pd.DataFrame, start_row: int,
+              use_sig: bool = True,
+              block_col: str = None) -> int:
+    """
+    Write a DataFrame to ws starting at start_row.
+    Returns the next available row after writing.
     """
     if df is None or df.empty:
-        ws.cell(row=1, column=1).value = "No results generated."
-        return
+        cell       = ws.cell(row=start_row, column=1)
+        cell.value = "No results."
+        cell.font  = Font(italic=True, color="888888")
+        return start_row + 2
 
     headers = list(df.columns)
     n_cols  = len(headers)
 
-    # Write header row
-    for col_idx, header in enumerate(headers, start=1):
-        ws.cell(row=1, column=col_idx).value = header
-    _style_header_row(ws, row_num=1, n_cols=n_cols)
-    ws.row_dimensions[1].height = 30
+    # Headers
+    for col_idx, h in enumerate(headers, start=1):
+        ws.cell(row=start_row, column=col_idx).value = h
+    _style_header(ws, start_row, n_cols)
+    current_row = start_row + 1
 
-    # Write data rows
-    for row_idx, (_, row) in enumerate(df.iterrows(), start=2):
-        alt       = (row_idx % 2 == 0)
-        highlight = use_sig_highlight and _is_significant(row)
-
-        # Determine block fill
+    # Data
+    for row_idx, (_, row) in enumerate(df.iterrows()):
+        alt        = (row_idx % 2 == 0)
+        highlight  = use_sig and _is_sig(row)
         block_fill = None
-        if use_block_colors and block_col in row.index:
-            block_name = str(row[block_col])
-            block_fill = BLOCK_FILLS.get(block_name)
+        if block_col and block_col in row.index:
+            block_fill = BLOCK_FILLS.get(str(row[block_col]))
 
         _style_data_row(
-            ws, row_idx, n_cols,
-            alt=alt,
-            block_fill=block_fill,
-            highlight=highlight,
+            ws, current_row, n_cols,
+            alt=alt, block_fill=block_fill, highlight=highlight
         )
-
         for col_idx, value in enumerate(row, start=1):
-            cell = ws.cell(row=row_idx, column=col_idx)
-            # Convert numpy types to native Python for Excel compatibility
-            if isinstance(value, (np.integer,)):
-                cell.value = int(value)
-            elif isinstance(value, (np.floating,)):
-                cell.value = float(value) if not np.isnan(value) else None
-            elif isinstance(value, float) and np.isnan(value):
-                cell.value = None
-            else:
-                cell.value = value
+            _write_value(ws.cell(row=current_row, column=col_idx), value)
+        current_row += 1
 
-    _autofit_columns(ws)
-    _freeze_header(ws)
+    return current_row + 1  # blank row after table
 
 
 # ---------------------------------------------------------------------------
-# Sheet H — special handler (dict of sub-tables)
+# Sheet writers
 # ---------------------------------------------------------------------------
-def _write_sheet_h(ws, data: dict) -> None:
+def _write_recap_then_full(
+    ws,
+    data: dict,
+    recap_key: str,
+    full_sections: list,
+    n_cols_hint: int = 15,
+) -> None:
     """
-    Write Sheet H (word frequencies + TF-IDF) as labelled sections
-    within a single worksheet, separated by blank rows.
+    Write a recap table at the top, then full result sections below.
 
-    Each key in the dict becomes a section header.
+    Args:
+        ws:             Worksheet
+        data:           Dict of DataFrames
+        recap_key:      Key for the recap DataFrame in data
+        full_sections:  List of (title, key, block_col) tuples
+        n_cols_hint:    Approximate column count for section titles
     """
-    if not data:
-        ws.cell(row=1, column=1).value = "No word frequency results generated."
-        return
-
-    section_labels = {
-        "freq_FR":              "Word Frequencies — French responses",
-        "freq_EN":              "Word Frequencies — English responses",
-        "freq_tone_friendly":   "Word Frequencies — Friendly condition",
-        "freq_tone_professional": "Word Frequencies — Professional condition",
-        "tfidf_friendly_FR":    "TF-IDF — Friendly condition (FR)",
-        "tfidf_pro_FR":         "TF-IDF — Professional condition (FR)",
-        "tfidf_friendly_EN":    "TF-IDF — Friendly condition (EN)",
-        "tfidf_pro_EN":         "TF-IDF — Professional condition (EN)",
-    }
-
     current_row = 1
 
-    for key, df_section in data.items():
-        if df_section is None or df_section.empty:
-            continue
+    # --- RECAP ---
+    current_row = _write_section_title(
+        ws, current_row,
+        "RECAP — Significant results only",
+        n_cols_hint, color="1F3864"
+    )
+    recap = data.get(recap_key, pd.DataFrame())
+    current_row = _write_df(ws, recap, current_row, use_sig=True)
 
-        # Section title
-        label = section_labels.get(key, key)
-        title_cell = ws.cell(row=current_row, column=1)
-        title_cell.value = label
-        title_cell.font  = Font(bold=True, size=11, color="1F3864")
-        title_cell.fill  = FILLS["block_engage"]
-        current_row += 1
+    # --- FULL RESULTS ---
+    for title, key, block_col in full_sections:
+        current_row = _write_section_title(
+            ws, current_row, title, n_cols_hint, color="2E75B6"
+        )
+        df_section = data.get(key, pd.DataFrame())
+        current_row = _write_df(
+            ws, df_section, current_row,
+            use_sig=True, block_col=block_col
+        )
 
-        # Column headers
-        headers = list(df_section.columns)
-        n_cols  = len(headers)
-        for col_idx, header in enumerate(headers, start=1):
-            ws.cell(row=current_row, column=col_idx).value = header
-        _style_header_row(ws, row_num=current_row, n_cols=n_cols)
-        current_row += 1
-
-        # Data rows
-        for row_idx_local, (_, row) in enumerate(df_section.iterrows()):
-            alt = (row_idx_local % 2 == 0)
-            _style_data_row(ws, current_row, n_cols, alt=alt)
-            for col_idx, value in enumerate(row, start=1):
-                cell = ws.cell(row=current_row, column=col_idx)
-                if isinstance(value, (np.integer,)):
-                    cell.value = int(value)
-                elif isinstance(value, (np.floating,)):
-                    cell.value = float(value) if not np.isnan(value) else None
-                elif isinstance(value, float) and np.isnan(value):
-                    cell.value = None
-                else:
-                    cell.value = value
-            current_row += 1
-
-        # Blank row between sections
-        current_row += 1
-
-    _autofit_columns(ws)
+    _autofit(ws)
+    _freeze(ws)
 
 
-# ---------------------------------------------------------------------------
-# Sheet K — cleaned data (special: no sig highlight, block colors by variable)
-# ---------------------------------------------------------------------------
-def _write_sheet_k(ws, df: pd.DataFrame) -> None:
-    """
-    Write the cleaned data sheet.
-    Color-codes column headers by variable block for readability.
-    No significance highlighting.
-    """
-    if df is None or df.empty:
-        ws.cell(row=1, column=1).value = "No data."
-        return
+def _write_sheet_toc(ws, toc_data: pd.DataFrame) -> None:
+    """Write Table of Contents sheet."""
+    ws.sheet_view.showGridLines = False
+    headers = list(toc_data.columns)
+    n_cols  = len(headers)
 
-    # Map variable prefixes to header fill colors
-    def _header_fill_for(col_name: str) -> PatternFill:
-        if col_name.startswith("PM"):
-            return FILLS["block_ai"]
-        if col_name.startswith("Comp"):
-            return FILLS["block_ai"]
-        if col_name.startswith("Ind") or col_name.startswith("MA") or \
-           col_name.startswith("MP"):
-            return FILLS["block_ai"]
-        if col_name.startswith("PP"):
-            return FILLS["block_personality"]
-        if col_name.startswith("E") and col_name[1:].isdigit():
-            return FILLS["block_eval"]
-        if col_name in ["composite", "quantity_mean", "quality_mean",
-                        "emotions_mean"]:
-            return FILLS["block_quality"]
-        if col_name in ["engagement_score", "z_avg_words", "z_duration",
-                        "avg_words_per_turn", "chat_duration_sec",
-                        "num_turns", "total_user_words"]:
-            return FILLS["block_engage"]
-        if col_name in ["age", "gender", "language"]:
-            return FILLS["block_demo"]
-        return FILLS["header_bg"]
+    for col_idx, h in enumerate(headers, start=1):
+        ws.cell(row=1, column=col_idx).value = h
+    _style_header(ws, 1, n_cols, bg="1F3864")
 
+    for row_idx, (_, row) in enumerate(toc_data.iterrows(), start=2):
+        alt = (row_idx % 2 == 0)
+        _style_data_row(ws, row_idx, n_cols, alt=alt)
+        for col_idx, value in enumerate(row, start=1):
+            cell       = ws.cell(row=row_idx, column=col_idx)
+            cell.value = str(value) if value else ""
+            cell.font  = Font(size=10)
+
+    _autofit(ws, min_w=20, max_w=80)
+
+
+def _write_sheet_l(ws, df: pd.DataFrame) -> None:
+    """Write Variable Definitions sheet."""
     headers = list(df.columns)
     n_cols  = len(headers)
 
-    # Write headers with variable-specific colors
-    for col_idx, header in enumerate(headers, start=1):
-        cell      = ws.cell(row=1, column=col_idx)
-        cell.value = header
-        cell.fill  = _header_fill_for(header)
-        cell.font  = Font(bold=True, color="FFFFFF", size=9)
-        cell.alignment = Alignment(
-            horizontal="center", vertical="center", wrap_text=True
-        )
+    for col_idx, h in enumerate(headers, start=1):
+        ws.cell(row=1, column=col_idx).value = h
+    _style_header(ws, 1, n_cols)
 
-    ws.row_dimensions[1].height = 35
-
-    # Write data rows (alternating, no highlight)
     for row_idx, (_, row) in enumerate(df.iterrows(), start=2):
         alt = (row_idx % 2 == 0)
         _style_data_row(ws, row_idx, n_cols, alt=alt)
         for col_idx, value in enumerate(row, start=1):
-            cell = ws.cell(row=row_idx, column=col_idx)
-            if isinstance(value, (np.integer,)):
-                cell.value = int(value)
-            elif isinstance(value, (np.floating,)):
-                cell.value = float(value) if not np.isnan(value) else None
-            elif isinstance(value, float) and np.isnan(value):
-                cell.value = None
-            elif isinstance(value, bool):
-                cell.value = str(value)
-            else:
-                cell.value = str(value) if value is not None else None
+            _write_value(ws.cell(row=row_idx, column=col_idx), value)
 
-    _autofit_columns(ws, min_width=8, max_width=30)
-    _freeze_header(ws)
+    _autofit(ws, min_w=15, max_w=60)
+    _freeze(ws)
+
+
+def _write_sheet_k(ws, df: pd.DataFrame) -> None:
+    """Write Cleaned Data sheet with color-coded headers by variable block."""
+
+    def _header_color(col: str) -> str:
+        if col.startswith("PM"):
+            return config.COLORS["block_ai"]
+        if col.startswith("Comp"):
+            return config.COLORS["block_ai"]
+        if col.startswith(("Ind","MA","MP")):
+            return config.COLORS["block_ai"]
+        if col.startswith("PP"):
+            return config.COLORS["block_personality"]
+        if col.startswith("E") and col[1:].isdigit():
+            return config.COLORS["block_eval"]
+        if col in ["composite","quantity_mean","quality_mean","emotions_mean",
+                   "quantity_run1","quantity_run2","quantity_run3",
+                   "quality_run1","quality_run2","quality_run3",
+                   "emotions_run1","emotions_run2","emotions_run3"]:
+            return config.COLORS["block_quality"]
+        if col in ["engagement_score","z_avg_words","z_duration",
+                   "avg_words_per_turn","chat_duration_sec",
+                   "num_turns","total_user_words","conversation_completed"]:
+            return config.COLORS["block_engage"]
+        if col in ["age","gender","language"]:
+            return config.COLORS["block_demo"]
+        return config.COLORS["header_bg"]
+
+    if df is None or df.empty:
+        ws.cell(row=1, column=1).value = "No data."
+        return
+
+    headers = list(df.columns)
+    n_cols  = len(headers)
+
+    for col_idx, h in enumerate(headers, start=1):
+        cell           = ws.cell(row=1, column=col_idx)
+        cell.value     = h
+        cell.fill      = _fill(_header_color(h))
+        cell.font      = Font(bold=True, color="FFFFFF", size=9)
+        cell.alignment = Alignment(
+            horizontal="center", vertical="center", wrap_text=True
+        )
+    ws.row_dimensions[1].height = 35
+
+    for row_idx, (_, row) in enumerate(df.iterrows(), start=2):
+        alt = (row_idx % 2 == 0)
+        _style_data_row(ws, row_idx, n_cols, alt=alt)
+        for col_idx, value in enumerate(row, start=1):
+            _write_value(ws.cell(row=row_idx, column=col_idx), value)
+
+    _autofit(ws, min_w=8, max_w=30)
+    _freeze(ws)
+
+
+def _write_sheet_b(ws, data: dict) -> None:
+    """Write Effect of Tone sheet — recap + 5 blocks."""
+    _write_recap_then_full(
+        ws, data,
+        recap_key="recap",
+        full_sections=[
+            ("AI Perceptions",        "ai",          "Block"),
+            ("Perceived Personality", "personality", "Block"),
+            ("Chatbot Evaluation",    "eval",        "Block"),
+            ("Quality & Engagement",  "quality",     "Block"),
+            ("H3 — Paired t-test: Comp1 vs Comp2", "h3", "Block"),
+        ],
+        n_cols_hint=15,
+    )
+
+
+def _write_sheet_g(ws, data) -> None:
+    """Write GPT Scoring sheet."""
+    if isinstance(data, dict):
+        sheet_g   = data.get("scores",  pd.DataFrame())
+        recap_g   = data.get("recap",   pd.DataFrame())
+        summary_g = data.get("summary", pd.DataFrame())
+    else:
+        sheet_g   = data
+        recap_g   = pd.DataFrame()
+        summary_g = pd.DataFrame()
+
+    current_row = 1
+    n_cols = max(
+        len(sheet_g.columns)   if not sheet_g.empty   else 1,
+        len(summary_g.columns) if not summary_g.empty else 1,
+    )
+
+    # Summary by condition
+    if not summary_g.empty:
+        current_row = _write_section_title(
+            ws, current_row,
+            "SUMMARY BY TONE CONDITION",
+            n_cols, color="1F3864"
+        )
+        current_row = _write_df(ws, summary_g, current_row, use_sig=False)
+
+    # Full scores
+    current_row = _write_section_title(
+        ws, current_row,
+        "FULL SCORES — All participants",
+        n_cols, color="2E75B6"
+    )
+    current_row = _write_df(ws, sheet_g, current_row, use_sig=False)
+
+    _autofit(ws)
+    _freeze(ws)
+
+
+def _write_sheet_h(ws, data: dict) -> None:
+    """Write Word Frequencies sheet — 4 sections × freq + TF-IDF."""
+    if not data:
+        ws.cell(row=1, column=1).value = "No word frequency results."
+        return
+
+    section_labels = {
+        "participant_friendly_freq":  "PARTICIPANT MESSAGES — Friendly condition — Word Frequencies",
+        "participant_friendly_tfidf": "PARTICIPANT MESSAGES — Friendly condition — TF-IDF",
+        "participant_pro_freq":       "PARTICIPANT MESSAGES — Professional condition — Word Frequencies",
+        "participant_pro_tfidf":      "PARTICIPANT MESSAGES — Professional condition — TF-IDF",
+        "chatbot_friendly_freq":      "CHATBOT MESSAGES — Friendly condition — Word Frequencies",
+        "chatbot_friendly_tfidf":     "CHATBOT MESSAGES — Friendly condition — TF-IDF",
+        "chatbot_pro_freq":           "CHATBOT MESSAGES — Professional condition — Word Frequencies",
+        "chatbot_pro_tfidf":          "CHATBOT MESSAGES — Professional condition — TF-IDF",
+    }
+
+    ordered_keys = [
+        "participant_friendly_freq",  "participant_friendly_tfidf",
+        "participant_pro_freq",       "participant_pro_tfidf",
+        "chatbot_friendly_freq",      "chatbot_friendly_tfidf",
+        "chatbot_pro_freq",           "chatbot_pro_tfidf",
+    ]
+
+    current_row = 1
+    n_cols      = 6
+
+    for key in ordered_keys:
+        if key not in data:
+            continue
+        df_section = data[key]
+        if df_section is None or df_section.empty:
+            continue
+
+        label       = section_labels.get(key, key)
+        current_row = _write_section_title(
+            ws, current_row, label, n_cols, color="1F3864"
+        )
+        current_row = _write_df(
+            ws, df_section, current_row, use_sig=False
+        )
+
+    _autofit(ws)
+
+
+def _write_sheet_i(ws, data: dict) -> None:
+    """Write Demographics & Robustness sheet."""
+    current_row = 1
+    n_cols      = 8
+
+    sections = [
+        ("DESCRIPTIVE STATISTICS",           "descriptives",   None,    False),
+        ("ANCOVA — Recap (significant only)", "ancova_recap",   "Sig.",  True),
+        ("ANCOVA — Full results",             "ancova",         "Sig.",  True),
+        ("INTERACTIONS — Recap",              "inter_recap",    "Sig.",  True),
+        ("INTERACTIONS — Full results",       "interactions",   "Sig.",  True),
+    ]
+
+    for title, key, _, use_sig in sections:
+        current_row = _write_section_title(
+            ws, current_row, title, n_cols,
+            color="1F3864" if "Recap" in title or "DESCRIPTIVE" in title
+            else "2E75B6"
+        )
+        df_section  = data.get(key, pd.DataFrame())
+        current_row = _write_df(
+            ws, df_section, current_row, use_sig=use_sig
+        )
+
+    _autofit(ws)
+    _freeze(ws)
 
 
 # ---------------------------------------------------------------------------
@@ -367,85 +482,96 @@ def write_excel(
     Write all analysis results to a single Excel file.
 
     Args:
-        results:     Dict mapping sheet key → DataFrame (or dict for Sheet H)
-        sheet_order: List of sheet keys in desired order
-        output_path: Path to write the .xlsx file
+        results:     Dict mapping sheet key → data
+        sheet_order: Ordered list of sheet keys
+        output_path: Output .xlsx path
     """
     wb = Workbook()
-    wb.remove(wb.active)  # remove default empty sheet
+    wb.remove(wb.active)
 
-    # Sheet display names
     sheet_names = {
-        "L": "L — Variable Definitions",
-        "K": "K — Cleaned Data",
-        "J": "J — Table of Contents",
-        "A": "A — Correlations",
-        "B": "B — Tone Effects",
-        "C": "C — AI Perceptions",
-        "D": "D — Feedback Quality",
-        "E": "E — Chatbot Evaluation",
-        "F": "F — Mediation",
-        "G": "G — GPT Scoring",
-        "H": "H — Word Frequencies",
-        "I": "I — Demographics",
-    }
-
-    # Per-sheet formatting options
-    sheet_config = {
-        "L": {"use_sig_highlight": False, "use_block_colors": False},
-        "K": {"special": "cleaned_data"},
-        "J": {"use_sig_highlight": False, "use_block_colors": False},
-        "A": {"use_sig_highlight": True,  "use_block_colors": False},
-        "B": {"use_sig_highlight": True,  "use_block_colors": True,
-              "block_col": "Block"},
-        "C": {"use_sig_highlight": True,  "use_block_colors": False},
-        "D": {"use_sig_highlight": True,  "use_block_colors": False},
-        "E": {"use_sig_highlight": True,  "use_block_colors": False},
-        "F": {"use_sig_highlight": True,  "use_block_colors": False},
-        "G": {"use_sig_highlight": False, "use_block_colors": False},
-        "H": {"special": "word_freq"},
-        "I": {"use_sig_highlight": True,  "use_block_colors": True,
-              "block_col": "Section"},
+        "J": "Table of Contents",
+        "L": "Variable Definitions",
+        "K": "Cleaned Data",
+        "A": "Correlations",
+        "B": "Effect of Tone",
+        "C": "AI Perception Regressions",
+        "D": "Predictors of Feedback Quality",
+        "E": "Predictors of Chatbot Evaluation",
+        "F": "Mediation Analyses",
+        "G": "GPT Scoring",
+        "H": "Word Frequencies",
+        "I": "Demographics & Robustness",
     }
 
     for key in sheet_order:
         if key not in results:
-            log.warning(f"Sheet {key}: no results found — sheet skipped.")
+            log.warning(f"Sheet {key}: no data — skipped.")
             continue
 
-        ws   = wb.create_sheet(title=sheet_names.get(key, key))
+        name = sheet_names.get(key, key)
+        ws   = wb.create_sheet(title=name)
         data = results[key]
-        cfg  = sheet_config.get(key, {})
+        log.info(f"Writing: {name}")
 
-        log.info(f"Writing sheet: {sheet_names.get(key, key)}")
+        if key == "J":
+            _write_sheet_toc(ws, data)
 
-        # Special handlers
-        if cfg.get("special") == "cleaned_data":
+        elif key == "L":
+            _write_sheet_l(ws, data)
+
+        elif key == "K":
             _write_sheet_k(ws, data)
 
-        elif cfg.get("special") == "word_freq":
+        elif key == "B":
+            _write_sheet_b(ws, data)
+
+        elif key == "G":
+            _write_sheet_g(ws, data)
+
+        elif key == "H":
             _write_sheet_h(ws, data if isinstance(data, dict) else {})
 
-        # Standard handler
-        elif isinstance(data, pd.DataFrame):
-            _write_sheet(
+        elif key == "I":
+            _write_sheet_i(ws, data if isinstance(data, dict) else {})
+
+        elif key in ("A", "C"):
+            # recap + full
+            _write_recap_then_full(
                 ws, data,
-                block_col=cfg.get("block_col", "Block"),
-                use_sig_highlight=cfg.get("use_sig_highlight", True),
-                use_block_colors=cfg.get("use_block_colors", False),
+                recap_key="recap",
+                full_sections=[("Full results", "full", None)],
+                n_cols_hint=12,
+            )
+
+        elif key in ("D", "E"):
+            _write_recap_then_full(
+                ws, data,
+                recap_key="recap",
+                full_sections=[("Full results", "full", None)],
+                n_cols_hint=13,
+            )
+
+        elif key == "F":
+            _write_recap_then_full(
+                ws, data,
+                recap_key="recap",
+                full_sections=[("Full results", "full", None)],
+                n_cols_hint=16,
             )
 
         else:
-            log.warning(
-                f"Sheet {key}: unexpected data type "
-                f"({type(data)}) — writing empty sheet."
-            )
-            ws.cell(row=1, column=1).value = f"No data for sheet {key}."
+            # Fallback
+            if isinstance(data, pd.DataFrame):
+                _write_df(ws, data, start_row=1)
+            else:
+                ws.cell(row=1, column=1).value = f"No handler for sheet {key}."
 
-    # Save
+        _autofit(ws)
+
     try:
         wb.save(output_path)
-        log.info(f"Excel file saved: {output_path}")
+        log.info(f"Saved: {output_path}")
     except Exception as e:
-        log.error(f"Failed to save Excel file: {e}")
+        log.error(f"Failed to save: {e}")
         raise
