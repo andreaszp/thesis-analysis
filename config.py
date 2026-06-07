@@ -165,3 +165,9 @@ COLORS: dict = {
     "block_personality": "FFF2CC",  # light yellow — perceived personality
     "alt_row":           "F7F9FC",  # very light blue — alternating rows
 }
+# ---------------------------------------------------------------------------
+# SCALE STATUS — populated at runtime by metrics.py
+# 'composite' = alpha >= 0.70, use scale_score
+# 'separate'  = alpha < 0.70, use individual items
+# ---------------------------------------------------------------------------
+SCALE_STATUS: dict = {}
