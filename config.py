@@ -51,6 +51,7 @@ COLUMN_RENAME: dict = {
     "EndDate":                "end_date",
     "Duration (in seconds)":  "duration_sec",
     "Finished":               "finished",
+    "Progress": "progress",
     "UserLanguage":           "language",
     "FL_13_DO":               "tone_raw",
 
