@@ -3,19 +3,18 @@ analyses.py
 -----------
 Step 3 of the pipeline: run all statistical analyses.
 
-Produces results for sheets:
-    A — Correlation matrix (Pearson + FDR correction)
+Sheets produced:
+    A — Correlation matrix (Pearson + FDR)
     B — Effect of tone (t-tests / Mann-Whitney + H3 paired t-test)
-    C — AI perception regressions (simple OLS, defined a priori)
+    C — AI perception regressions (simple OLS, a priori)
     D — Predictors of feedback quality (hierarchical regressions)
     E — Predictors of chatbot evaluation (hierarchical regressions)
     F — Mediation analyses (OLS bootstrap, Preacher & Hayes 2008)
-    I — Demographics & robustness checks (ANCOVA + interactions)
+    I — Demographics & robustness (ANCOVA + interactions)
 
-All predictors defined a priori — never selected post-hoc.
+All predictors defined a priori.
 FDR correction (Benjamini-Hochberg) applied where specified.
 Mediation: OLS + bias-corrected bootstrap (5000 iterations).
-Reference: Preacher & Hayes (2008).
 """
 
 import logging
@@ -50,7 +49,7 @@ def run_all_analyses(df: pd.DataFrame) -> dict:
     results["E"] = run_sheet_e(df)
     log.info("Sheet F — Mediation analyses")
     results["F"] = run_sheet_f(df)
-    log.info("Sheet I — Demographics & robustness checks")
+    log.info("Sheet I — Demographics & robustness")
     results["I"] = run_sheet_i(df)
     return results
 
@@ -60,24 +59,50 @@ def run_all_analyses(df: pd.DataFrame) -> dict:
 # ---------------------------------------------------------------------------
 def _get_predictors_for_scale(scale_name: str) -> list:
     """
-    Return the right variable(s) for a scale based on Cronbach's alpha.
-    If composite validated (alpha >= 0.70) → [scale_score]
-    If items separate (alpha < 0.70)       → individual items
+    Return composite score if alpha >= 0.70, else individual items.
     """
-    status = getattr(config, 'SCALE_STATUS', {}).get(scale_name, 'separate')
-    if status == 'composite':
+    status = getattr(config, "SCALE_STATUS", {}).get(scale_name, "separate")
+    if status == "composite":
         return [f"{scale_name}_score"]
-    else:
-        return config.SCALE_ITEMS.get(scale_name, [])
+    return config.SCALE_ITEMS.get(scale_name, [])
 
 
-def _cohens_d(group1: pd.Series, group2: pd.Series) -> float:
-    n1, n2     = len(group1), len(group2)
-    var1, var2 = group1.var(ddof=1), group2.var(ddof=1)
-    pooled_sd  = np.sqrt(((n1-1)*var1 + (n2-1)*var2) / (n1+n2-2))
-    if pooled_sd == 0:
+def _scale_label(var: str) -> str:
+    """Return human-readable scale label for a variable."""
+    mapping = {
+        "PM_score": "Perceived Manipulation",
+        "PM1": "Perceived Manipulation",
+        "PM2": "Perceived Manipulation",
+        "PM3": "Perceived Manipulation",
+        "PM4": "Perceived Manipulation",
+        "Comp_score": "Competence",
+        "Comp1": "Competence",
+        "Comp2": "Competence",
+        "Ind_score": "Autonomy",
+        "Ind1": "Autonomy",
+        "Ind2": "Autonomy",
+        "MA_score": "Moral Agency",
+        "MA1": "Moral Agency",
+        "MA2": "Moral Agency",
+        "MP_score": "Moral Patiency",
+        "MP1": "Moral Patiency",
+        "MP2": "Moral Patiency",
+    }
+    return mapping.get(var, var)
+
+
+def _col_has_data(df: pd.DataFrame, col: str) -> bool:
+    """Return True if column exists and has >= 20 non-NaN values."""
+    return col in df.columns and df[col].notna().sum() >= 20
+
+
+def _cohens_d(g1: pd.Series, g2: pd.Series) -> float:
+    n1, n2     = len(g1), len(g2)
+    var1, var2 = g1.var(ddof=1), g2.var(ddof=1)
+    pooled     = np.sqrt(((n1-1)*var1 + (n2-1)*var2) / (n1+n2-2))
+    if pooled == 0:
         return np.nan
-    return round((group1.mean() - group2.mean()) / pooled_sd, 3)
+    return round((g1.mean() - g2.mean()) / pooled, 3)
 
 
 def _effect_size_label(d: float) -> str:
@@ -97,23 +122,42 @@ def _normality_ok(series: pd.Series) -> bool:
 
 
 def _fdr_correct(p_values: list) -> list:
-    if len(p_values) == 0:
+    if not p_values:
         return []
-    _, p_corrected, _, _ = multipletests(p_values, method=config.FDR_METHOD)
-    return list(p_corrected)
+    _, corrected, _, _ = multipletests(p_values, method=config.FDR_METHOD)
+    return list(corrected)
 
 
 def _sig_label(p: float) -> str:
-    if p < 0.001: return "***"
-    if p < 0.01:  return "**"
-    if p < 0.05:  return "*"
+    if pd.isna(p):   return "ns"
+    if p < 0.001:    return "***"
+    if p < 0.01:     return "**"
+    if p < 0.05:     return "*"
     return "ns"
+
+
+def _make_recap(df_full: pd.DataFrame, sig_col: str = "Sig.") -> pd.DataFrame:
+    """
+    Extract significant rows from a full results DataFrame.
+    Returns empty DataFrame with note if no significant results.
+    """
+    if df_full is None or df_full.empty:
+        return pd.DataFrame()
+    sig = df_full[df_full[sig_col].str.contains(r"\*", na=False)].copy()
+    if sig.empty:
+        return pd.DataFrame({"note": ["No significant results found."]})
+    return sig.reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------------
 # Sheet A — Correlation matrix
 # ---------------------------------------------------------------------------
-def run_sheet_a(df: pd.DataFrame) -> pd.DataFrame:
+def run_sheet_a(df: pd.DataFrame) -> dict:
+    """
+    Returns dict with keys:
+        'recap' — significant correlations only
+        'full'  — all tested pairs
+    """
     continuous_vars = [
         "PM1","PM2","PM3","PM4","PM_score",
         "Comp1","Comp2","Comp_score",
@@ -122,19 +166,24 @@ def run_sheet_a(df: pd.DataFrame) -> pd.DataFrame:
         "MP1","MP2","MP_score",
         "PP1","PP2","PP3","PP4","PP5",
         "E1","E2","E3","E4","E5","E6",
-        "composite","emotions_mean",
+        "composite","emotions_mean","quantity_mean","quality_mean",
         "engagement_score","avg_words_per_turn","chat_duration_sec",
         "age",
     ]
 
     labels = {
-        "PM_score":"Perceived Manipulation","Comp_score":"Competence",
+        "PM_score":"Perceived Manipulation composite",
+        "Comp_score":"Competence composite",
         "Ind1":"AI plans & goals","Ind2":"AI self-control",
         "MA1":"Moral gravity AI→human","MA2":"AI moral responsibility",
-        "MP_score":"Moral Patiency","E1":"Effort","E2":"Engagement felt",
-        "E3":"Appreciation","E4":"Utility","E5":"Reuse intention",
-        "E6":"Preference","composite":"Feedback composite",
-        "emotions_mean":"Emotions","engagement_score":"Engagement score",
+        "MP_score":"Moral Patiency composite",
+        "E1":"Effort","E2":"Engagement felt",
+        "E3":"Appreciation","E4":"Utility",
+        "E5":"Reuse intention","E6":"Preference",
+        "composite":"Feedback composite",
+        "emotions_mean":"Emotions","quantity_mean":"Quantity",
+        "quality_mean":"Quality",
+        "engagement_score":"Engagement score",
         "avg_words_per_turn":"Avg words/turn",
         "chat_duration_sec":"Chat duration","age":"Age",
     }
@@ -155,45 +204,70 @@ def run_sheet_a(df: pd.DataFrame) -> pd.DataFrame:
             })
 
     if not rows:
-        return pd.DataFrame()
+        return {"recap": pd.DataFrame(), "full": pd.DataFrame()}
 
-    result         = pd.DataFrame(rows)
-    result["p_fdr"] = _fdr_correct(result["p_raw"].tolist())
-    result["p_fdr"] = result["p_fdr"].round(4)
-    result          = result[result["p_fdr"] < config.ALPHA].copy()
-    result["Sig."]      = result["p_fdr"].apply(_sig_label)
-    result["Strength"]  = result["r"].abs().apply(
+    full            = pd.DataFrame(rows)
+    full["p_fdr"]   = np.round(_fdr_correct(full["p_raw"].tolist()), 4)
+    full["Sig."]    = full["p_fdr"].apply(_sig_label)
+    full["Strength"]= full["r"].abs().apply(
         lambda r: "weak" if r < 0.3 else ("moderate" if r < 0.5 else "strong")
     )
-    result["Direction"] = result["r"].apply(
+    full["Direction"] = full["r"].apply(
         lambda r: "positive" if r > 0 else "negative"
     )
-    result = result.sort_values("p_fdr").reset_index(drop=True)
-    log.info(f"Sheet A: {len(result)} significant correlations after FDR.")
-    return result
+    full = full.sort_values("p_fdr").reset_index(drop=True)
+
+    recap = full[full["p_fdr"] < config.ALPHA].copy().reset_index(drop=True)
+
+    log.info(
+        f"Sheet A: {len(full)} pairs tested, "
+        f"{len(recap)} significant after FDR."
+    )
+    return {"recap": recap, "full": full}
 
 
 # ---------------------------------------------------------------------------
 # Sheet B — Effect of tone
 # ---------------------------------------------------------------------------
-def run_sheet_b(df: pd.DataFrame) -> pd.DataFrame:
+def run_sheet_b(df: pd.DataFrame) -> dict:
+    """
+    Returns dict with keys:
+        'recap'       — significant results only
+        'ai'          — AI Perceptions block
+        'personality' — Perceived Personality block
+        'eval'        — Chatbot Evaluation block
+        'quality'     — Quality & Engagement block
+        'h3'          — H3 paired t-test
+    """
     blocks = {
-        "AI Perceptions": [
-            "PM1","PM2","PM3","PM4","PM_score",
-            "Comp1","Comp2","Comp_score",
-            "Ind1","Ind2",
-            "MA1","MA2",
-            "MP1","MP2","MP_score",
-        ],
-        "Perceived Personality": ["PP1","PP2","PP3","PP4","PP5"],
-        "Chatbot Evaluation":    ["E1","E2","E3","E4","E5","E6"],
-        "Quality & Engagement":  [
-            "quantity_mean","quality_mean","emotions_mean",
-            "composite","engagement_score",
-        ],
+        "ai": {
+            "label": "AI Perceptions",
+            "vars": [
+                "PM1","PM2","PM3","PM4","PM_score",
+                "Comp1","Comp2","Comp_score",
+                "Ind1","Ind2",
+                "MA1","MA2",
+                "MP1","MP2","MP_score",
+            ],
+        },
+        "personality": {
+            "label": "Perceived Personality",
+            "vars": ["PP1","PP2","PP3","PP4","PP5"],
+        },
+        "eval": {
+            "label": "Chatbot Evaluation",
+            "vars": ["E1","E2","E3","E4","E5","E6"],
+        },
+        "quality": {
+            "label": "Quality & Engagement",
+            "vars": [
+                "quantity_mean","quality_mean","emotions_mean",
+                "composite","engagement_score",
+            ],
+        },
     }
 
-    labels = {
+    var_labels = {
         "PM1":"Threat to freedom","PM2":"Decision override",
         "PM3":"Manipulation attempt","PM4":"Pressure felt",
         "PM_score":"PM composite",
@@ -207,17 +281,22 @@ def run_sheet_b(df: pd.DataFrame) -> pd.DataFrame:
         "PP4":"Warm","PP5":"Formal",
         "E1":"Effort","E2":"Engagement felt","E3":"Appreciation",
         "E4":"Utility","E5":"Reuse intention","E6":"Preference",
-        "quantity_mean":"Feedback quantity","quality_mean":"Feedback quality",
-        "emotions_mean":"Emotions","composite":"Feedback composite",
+        "quantity_mean":"Feedback quantity",
+        "quality_mean":"Feedback quality",
+        "emotions_mean":"Emotions",
+        "composite":"Feedback composite",
         "engagement_score":"Engagement score",
     }
 
+    # FL_21 = friendly (tone=1), FL_22 = professional (tone=0)
     friendly = df[df["tone"] == 1]
     pro      = df[df["tone"] == 0]
-    rows     = []
+    results  = {}
+    all_rows = []
 
-    for block_name, variables in blocks.items():
-        for var in variables:
+    for block_key, block_info in blocks.items():
+        rows = []
+        for var in block_info["vars"]:
             if var not in df.columns:
                 continue
             g1 = friendly[var].dropna()
@@ -230,62 +309,79 @@ def run_sheet_b(df: pd.DataFrame) -> pd.DataFrame:
                 stat, p   = stats.ttest_ind(g1, g2, equal_var=False)
                 test_name = "Welch t-test"
             else:
-                stat, p   = stats.mannwhitneyu(g1, g2, alternative="two-sided")
+                stat, p   = stats.mannwhitneyu(
+                    g1, g2, alternative="two-sided"
+                )
                 test_name = "Mann-Whitney U"
 
             d = _cohens_d(g1, g2)
-            rows.append({
-                "Variable":      var,
-                "Label":         labels.get(var, var),
-                "Block":         block_name,
-                "Mean_friendly": round(g1.mean(), 3),
-                "SD_friendly":   round(g1.std(), 3),
-                "N_friendly":    len(g1),
-                "Mean_pro":      round(g2.mean(), 3),
-                "SD_pro":        round(g2.std(), 3),
-                "N_pro":         len(g2),
-                "Delta":         round(g1.mean() - g2.mean(), 3),
-                "Test":          test_name,
-                "Statistic":     round(stat, 3),
-                "p":             round(p, 4),
-                "Cohen_d":       d,
-                "Effect_size":   _effect_size_label(d),
-                "Sig.":          _sig_label(p),
-            })
+            row = {
+                "Variable":    var,
+                "Label":       var_labels.get(var, var),
+                "Block":       block_info["label"],
+                "N_FL21":      len(g1),
+                "Mean_FL21":   round(g1.mean(), 3),
+                "SD_FL21":     round(g1.std(),  3),
+                "N_FL22":      len(g2),
+                "Mean_FL22":   round(g2.mean(), 3),
+                "SD_FL22":     round(g2.std(),  3),
+                "Delta(21-22)":round(g1.mean() - g2.mean(), 3),
+                "t":           round(stat, 3),
+                "p-value":     round(p, 4),
+                "Cohen_d":     d,
+                "Effect":      _effect_size_label(d),
+                "Sig.":        _sig_label(p),
+                "Test":        test_name,
+            }
+            rows.append(row)
+            all_rows.append(row)
 
-    # H3 — paired t-test: Comp1 vs Comp2
+        results[block_key] = pd.DataFrame(rows)
+
+    # H3 — paired t-test Comp1 vs Comp2
+    h3_rows = []
     if "Comp1" in df.columns and "Comp2" in df.columns:
-        clean    = df[["Comp1","Comp2"]].dropna()
+        clean        = df[["Comp1","Comp2"]].dropna()
         t_stat, p_h3 = stats.ttest_rel(clean["Comp1"], clean["Comp2"])
-        d_h3     = _cohens_d(clean["Comp1"], clean["Comp2"])
-        rows.append({
-            "Variable":      "Comp1 vs Comp2",
-            "Label":         "H3: Skills > Morality judgment (paired t-test)",
-            "Block":         "H3 — Hypothesis test",
-            "Mean_friendly": round(clean["Comp1"].mean(), 3),
-            "SD_friendly":   round(clean["Comp1"].std(), 3),
-            "N_friendly":    len(clean),
-            "Mean_pro":      round(clean["Comp2"].mean(), 3),
-            "SD_pro":        round(clean["Comp2"].std(), 3),
-            "N_pro":         len(clean),
-            "Delta":         round(clean["Comp1"].mean() - clean["Comp2"].mean(), 3),
-            "Test":          "Paired t-test",
-            "Statistic":     round(t_stat, 3),
-            "p":             round(p_h3, 4),
-            "Cohen_d":       d_h3,
-            "Effect_size":   _effect_size_label(d_h3),
-            "Sig.":          _sig_label(p_h3),
-        })
+        d_h3         = _cohens_d(clean["Comp1"], clean["Comp2"])
+        h3_row = {
+            "Variable":    "Comp1 vs Comp2",
+            "Label":       "H3: Skills > Morality judgment",
+            "Block":       "H3",
+            "N_FL21":      len(clean),
+            "Mean_FL21":   round(clean["Comp1"].mean(), 3),
+            "SD_FL21":     round(clean["Comp1"].std(),  3),
+            "N_FL22":      len(clean),
+            "Mean_FL22":   round(clean["Comp2"].mean(), 3),
+            "SD_FL22":     round(clean["Comp2"].std(),  3),
+            "Delta(21-22)":round(
+                clean["Comp1"].mean() - clean["Comp2"].mean(), 3
+            ),
+            "t":           round(t_stat, 3),
+            "p-value":     round(p_h3, 4),
+            "Cohen_d":     d_h3,
+            "Effect":      _effect_size_label(d_h3),
+            "Sig.":        _sig_label(p_h3),
+            "Test":        "Paired t-test",
+        }
+        results["h3"] = pd.DataFrame([h3_row])
+        all_rows.append(h3_row)
 
-    result = pd.DataFrame(rows)
-    log.info(f"Sheet B: {len(result)} tests run.")
-    return result
+    # Recap — significant only
+    all_df        = pd.DataFrame(all_rows)
+    results["recap"] = _make_recap(all_df)
+
+    log.info(f"Sheet B: {len(all_rows)} tests run.")
+    return results
 
 
 # ---------------------------------------------------------------------------
 # Sheet C — AI perception regressions
 # ---------------------------------------------------------------------------
-def run_sheet_c(df: pd.DataFrame) -> pd.DataFrame:
+def run_sheet_c(df: pd.DataFrame) -> dict:
+    """
+    Returns dict with keys: 'recap', 'full'
+    """
     ind  = _get_predictors_for_scale("Ind")
     ma   = _get_predictors_for_scale("MA")
     mp   = _get_predictors_for_scale("MP")
@@ -309,34 +405,34 @@ def run_sheet_c(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for iv, dv, note in regressions:
         if iv not in df.columns or dv not in df.columns:
-            log.warning(f"Sheet C: skipping {iv} → {dv} (column missing)")
             continue
         clean = df[[iv, dv]].dropna()
         if len(clean) < 10:
             continue
         model = ols(f"{dv} ~ {iv}", data=clean).fit()
-        label = f"{iv}{' (H4)' if note == 'H4' else ''}"
         rows.append({
-            "IV":   label,
-            "DV":   dv,
-            "β":    round(model.params[iv], 3),
-            "SE":   round(model.bse[iv], 3),
-            "t":    round(model.tvalues[iv], 3),
-            "p":    round(model.pvalues[iv], 4),
-            "R²":   round(model.rsquared, 3),
-            "F":    round(model.fvalue, 3),
-            "Sig.": _sig_label(model.pvalues[iv]),
+            "IV":    iv + (" (H4)" if note == "H4" else ""),
+            "Scale": _scale_label(iv),
+            "DV":    dv,
+            "β":     round(model.params[iv], 3),
+            "SE":    round(model.bse[iv],    3),
+            "t":     round(model.tvalues[iv],3),
+            "p":     round(model.pvalues[iv],4),
+            "R²":    round(model.rsquared,   3),
+            "F":     round(model.fvalue,     3),
+            "Sig.":  _sig_label(model.pvalues[iv]),
         })
 
-    result = pd.DataFrame(rows)
-    log.info(f"Sheet C: {len(result)} regressions run.")
-    return result
+    full  = pd.DataFrame(rows)
+    recap = _make_recap(full)
+    log.info(f"Sheet C: {len(full)} regressions run.")
+    return {"recap": recap, "full": full}
 
 
 # ---------------------------------------------------------------------------
 # Sheet D — Predictors of feedback quality
 # ---------------------------------------------------------------------------
-def run_sheet_d(df: pd.DataFrame) -> pd.DataFrame:
+def run_sheet_d(df: pd.DataFrame) -> dict:
     ai_preds = (
         _get_predictors_for_scale("PM") +
         _get_predictors_for_scale("Comp") +
@@ -350,13 +446,15 @@ def run_sheet_d(df: pd.DataFrame) -> pd.DataFrame:
         ["tone"] + ai_preds,
         ["tone"] + ai_preds + ["E1", "E2"],
     ]
-    return _hierarchical_regression(df, dvs, blocks, sheet_name="D")
+    full  = _hierarchical_regression(df, dvs, blocks, sheet_name="D")
+    recap = _make_recap(full)
+    return {"recap": recap, "full": full}
 
 
 # ---------------------------------------------------------------------------
 # Sheet E — Predictors of chatbot evaluation
 # ---------------------------------------------------------------------------
-def run_sheet_e(df: pd.DataFrame) -> pd.DataFrame:
+def run_sheet_e(df: pd.DataFrame) -> dict:
     ai_preds = (
         _get_predictors_for_scale("PM") +
         _get_predictors_for_scale("Comp") +
@@ -370,11 +468,13 @@ def run_sheet_e(df: pd.DataFrame) -> pd.DataFrame:
         ["tone"] + ai_preds,
         ["tone"] + ai_preds + ["composite", "engagement_score"],
     ]
-    return _hierarchical_regression(df, dvs, blocks, sheet_name="E")
+    full  = _hierarchical_regression(df, dvs, blocks, sheet_name="E")
+    recap = _make_recap(full)
+    return {"recap": recap, "full": full}
 
 
 # ---------------------------------------------------------------------------
-# Shared hierarchical regression
+# Hierarchical regression
 # ---------------------------------------------------------------------------
 def _hierarchical_regression(
     df: pd.DataFrame,
@@ -389,67 +489,60 @@ def _hierarchical_regression(
             log.warning(f"Sheet {sheet_name}: DV '{dv}' not found — skipped.")
             continue
 
-        prev_r2       = 0.0
-        prev_rss      = None
-        prev_df_resid = None
+        prev_r2 = prev_rss = prev_df_resid = None
 
         for block_num, predictors in enumerate(blocks, start=1):
-            valid_preds = [p for p in predictors if p in df.columns]
-            if not valid_preds:
+            valid = [p for p in predictors if p in df.columns]
+            if not valid:
+                continue
+            clean = df[valid + [dv]].dropna()
+            if len(clean) < len(valid) + 5:
                 continue
 
-            clean = df[valid_preds + [dv]].dropna()
-            if len(clean) < len(valid_preds) + 5:
-                continue
-
-            formula = f"{dv} ~ {' + '.join(valid_preds)}"
-            model   = ols(formula, data=clean).fit()
-
-            delta_r2      = round(model.rsquared - prev_r2, 4)
+            model         = ols(f"{dv} ~ {' + '.join(valid)}", data=clean).fit()
+            delta_r2      = round(model.rsquared - (prev_r2 or 0), 4)
             curr_rss      = model.ssr
             curr_df_resid = model.df_resid
 
-            if prev_rss is not None and prev_df_resid is not None:
-                df_change = prev_df_resid - curr_df_resid
-                if df_change > 0 and curr_rss > 0:
-                    f_change   = ((prev_rss - curr_rss) / df_change) / (curr_rss / curr_df_resid)
-                    p_f_change = 1 - stats.f.cdf(f_change, df_change, curr_df_resid)
+            if prev_rss is not None:
+                df_chg = prev_df_resid - curr_df_resid
+                if df_chg > 0 and curr_rss > 0:
+                    f_chg   = ((prev_rss - curr_rss) / df_chg) / \
+                               (curr_rss / curr_df_resid)
+                    p_f_chg = 1 - stats.f.cdf(f_chg, df_chg, curr_df_resid)
                 else:
-                    f_change, p_f_change = np.nan, np.nan
+                    f_chg = p_f_chg = np.nan
             else:
-                f_change   = model.fvalue
-                p_f_change = model.f_pvalue
+                f_chg, p_f_chg = model.fvalue, model.f_pvalue
 
-            for pred in valid_preds:
+            for pred in valid:
                 if pred not in model.params:
                     continue
                 all_rows.append({
                     "DV":        dv,
                     "Block":     block_num,
                     "Predictor": pred,
-                    "β":         round(model.params[pred], 3),
-                    "SE":        round(model.bse[pred], 3),
-                    "t":         round(model.tvalues[pred], 3),
-                    "p":         round(model.pvalues[pred], 4),
-                    "R²":        round(model.rsquared, 3),
-                    "ΔR²":       delta_r2 if pred == valid_preds[0] else "",
-                    "F_change":  round(f_change, 3) if pred == valid_preds[0] else "",
-                    "p_Fchange": round(p_f_change, 4) if pred == valid_preds[0] else "",
+                    "Scale":     _scale_label(pred),
+                    "β":         round(model.params[pred],   3),
+                    "SE":        round(model.bse[pred],      3),
+                    "t":         round(model.tvalues[pred],  3),
+                    "p":         round(model.pvalues[pred],  4),
+                    "R²":        round(model.rsquared,       3),
+                    "ΔR²":       delta_r2 if pred == valid[0] else "",
+                    "F_change":  round(f_chg,   3) if pred == valid[0] else "",
+                    "p_Fchange": round(p_f_chg, 4) if pred == valid[0] else "",
                     "Sig.":      _sig_label(model.pvalues[pred]),
                 })
 
-            prev_r2       = model.rsquared
-            prev_rss      = curr_rss
-            prev_df_resid = curr_df_resid
+            prev_r2, prev_rss, prev_df_resid = (
+                model.rsquared, curr_rss, curr_df_resid
+            )
 
-    result = pd.DataFrame(all_rows)
-    log.info(f"Sheet {sheet_name}: {len(dvs)} DVs x {len(blocks)} blocks completed.")
-    return result
+    return pd.DataFrame(all_rows)
 
 
 # ---------------------------------------------------------------------------
 # Sheet F — Mediation analyses
-# OLS + bias-corrected bootstrap (Preacher & Hayes, 2008)
 # ---------------------------------------------------------------------------
 def _bootstrap_indirect(
     df: pd.DataFrame,
@@ -459,69 +552,68 @@ def _bootstrap_indirect(
     n_boot: int = 5000,
     seed: int = 42,
 ) -> tuple:
-    """
-    Bias-corrected bootstrap for indirect effect.
-    Supports simple (1 mediator) and serial (2 mediators) models.
-    Returns: (indirect_effect, ci_low, ci_high)
-    """
     rng           = np.random.default_rng(seed)
     n             = len(df)
     indirect_boot = []
 
     for _ in range(n_boot):
-        sample = df.sample(n=n, replace=True,
-                           random_state=int(rng.integers(0, 999999)))
+        sample = df.sample(
+            n=n, replace=True,
+            random_state=int(rng.integers(0, 999999))
+        )
         try:
             if len(mediators) == 1:
                 m = mediators[0]
                 a = ols(f"{m} ~ {iv}", data=sample).fit().params[iv]
-                b = ols(f"{dv} ~ {iv} + {m}", data=sample).fit().params[m]
+                b = ols(f"{dv} ~ {iv} + {m}",
+                        data=sample).fit().params[m]
                 indirect_boot.append(a * b)
-
             elif len(mediators) == 2:
-                m1, m2 = mediators[0], mediators[1]
-                a1 = ols(f"{m1} ~ {iv}", data=sample).fit().params[iv]
-                a2 = ols(f"{m2} ~ {iv} + {m1}", data=sample).fit().params[m1]
-                b2 = ols(f"{dv} ~ {iv} + {m1} + {m2}", data=sample).fit().params[m2]
+                m1, m2 = mediators
+                a1 = ols(f"{m1} ~ {iv}",
+                         data=sample).fit().params[iv]
+                a2 = ols(f"{m2} ~ {iv} + {m1}",
+                         data=sample).fit().params[m1]
+                b2 = ols(f"{dv} ~ {iv} + {m1} + {m2}",
+                         data=sample).fit().params[m2]
                 indirect_boot.append(a1 * a2 * b2)
-
         except Exception:
             continue
 
     if len(indirect_boot) < 100:
         return np.nan, np.nan, np.nan
 
-    indirect_arr = np.array(indirect_boot)
-    ci_low       = np.percentile(indirect_arr, 2.5)
-    ci_high      = np.percentile(indirect_arr, 97.5)
-
-    return round(float(np.mean(indirect_arr)), 4), round(ci_low, 4), round(ci_high, 4)
+    arr = np.array(indirect_boot)
+    return (
+        round(float(np.mean(arr)),          4),
+        round(float(np.percentile(arr,2.5)),4),
+        round(float(np.percentile(arr,97.5)),4),
+    )
 
 
 def _run_simple_mediation(
-    df: pd.DataFrame,
-    iv: str, med: str, dv: str, series: str,
-    *args,
+    df, iv, med, dv, series, *args
 ) -> dict | None:
     needed  = [iv, med, dv]
     missing = [c for c in needed if c not in df.columns]
     if missing:
         log.warning(f"Mediation {iv}→{med}→{dv}: missing {missing} — skipped.")
         return None
-
     clean = df[needed].dropna()
     if len(clean) < 20:
         log.warning(f"Mediation {iv}→{med}→{dv}: only {len(clean)} rows — skipped.")
         return None
 
+    # Multicollinearity check
+    r_iv_m = round(clean[iv].corr(clean[med]), 3)
+    multicol_warning = abs(r_iv_m) > 0.80
+
     try:
-        model_a = ols(f"{med} ~ {iv}", data=clean).fit()
-        a       = model_a.params[iv]
+        a       = ols(f"{med} ~ {iv}", data=clean).fit().params[iv]
         model_b = ols(f"{dv} ~ {iv} + {med}", data=clean).fit()
         b       = model_b.params[med]
         c_prime = model_b.params[iv]
-        model_c = ols(f"{dv} ~ {iv}", data=clean).fit()
-        c       = model_c.params[iv]
+        c       = ols(f"{dv} ~ {iv}", data=clean).fit().params[iv]
 
         indirect, ci_low, ci_high = _bootstrap_indirect(
             clean, iv, [med], dv,
@@ -529,43 +621,40 @@ def _run_simple_mediation(
         )
 
         return {
-            "Series":   series,
-            "IV":       iv,
-            "Mediator": med,
-            "DV":       dv,
-            "n":        len(clean),
-            "a":        round(a, 3),
-            "b":        round(b, 3),
-            "c":        round(c, 3),
-            "c_prime":  round(c_prime, 3),
-            "Indirect": indirect,
-            "CI_low":   ci_low,
-            "CI_high":  ci_high,
-            "Type":     "simple",
-            "r_IV_M":   round(clean[iv].corr(clean[med]), 3),
-            "r_IV_DV":  round(clean[iv].corr(clean[dv]),  3),
-            "r_M_DV":   round(clean[med].corr(clean[dv]), 3),
+            "Series":          series,
+            "IV":              iv,
+            "Mediator":        med,
+            "DV":              dv,
+            "n":               len(clean),
+            "a":               round(a,       3),
+            "b":               round(b,       3),
+            "c":               round(c,       3),
+            "c_prime":         round(c_prime, 3),
+            "Indirect":        indirect,
+            "CI_low":          ci_low,
+            "CI_high":         ci_high,
+            "Type":            "simple",
+            "r_IV_M":          r_iv_m,
+            "r_IV_DV":         round(clean[iv].corr(clean[dv]),  3),
+            "r_M_DV":          round(clean[med].corr(clean[dv]), 3),
+            "Multicollinearity": "⚠️ r > 0.80 — interpret with caution"
+                                  if multicol_warning else "",
         }
-
     except Exception as e:
-        log.error(f"Mediation {iv}→{med}→{dv}: failed — {e}")
+        log.error(f"Mediation {iv}→{med}→{dv}: {e}")
         return None
 
 
 def _run_chain_mediation(
-    df: pd.DataFrame,
-    iv: str, mediators: list, dv: str, series: str,
-    *args,
+    df, iv, mediators, dv, series, *args
 ) -> dict | None:
     needed  = [iv] + mediators + [dv]
     missing = [c for c in needed if c not in df.columns]
     if missing:
         log.warning(f"Chain mediation: missing {missing} — skipped.")
         return None
-
     clean = df[needed].dropna()
     if len(clean) < 20:
-        log.warning(f"Chain mediation: only {len(clean)} rows — skipped.")
         return None
 
     try:
@@ -574,32 +663,32 @@ def _run_chain_mediation(
             n_boot=config.BOOTSTRAP_ITERATIONS,
         )
         return {
-            "Series":   series,
-            "IV":       iv,
-            "Mediator": " → ".join(mediators),
-            "DV":       dv,
-            "n":        len(clean),
-            "a":        np.nan,
-            "b":        np.nan,
-            "c":        np.nan,
-            "c_prime":  np.nan,
-            "Indirect": indirect,
-            "CI_low":   ci_low,
-            "CI_high":  ci_high,
-            "Type":     "serial chain",
-            "r_IV_M":   np.nan,
-            "r_IV_DV":  round(clean[iv].corr(clean[dv]), 3),
-            "r_M_DV":   np.nan,
+            "Series":          series,
+            "IV":              iv,
+            "Mediator":        " → ".join(mediators),
+            "DV":              dv,
+            "n":               len(clean),
+            "a":               np.nan,
+            "b":               np.nan,
+            "c":               np.nan,
+            "c_prime":         np.nan,
+            "Indirect":        indirect,
+            "CI_low":          ci_low,
+            "CI_high":         ci_high,
+            "Type":            "serial chain",
+            "r_IV_M":          np.nan,
+            "r_IV_DV":         round(clean[iv].corr(clean[dv]), 3),
+            "r_M_DV":          np.nan,
+            "Multicollinearity": "",
         }
     except Exception as e:
-        log.error(f"Chain mediation failed — {e}")
+        log.error(f"Chain mediation failed: {e}")
         return None
 
 
-def run_sheet_f(df: pd.DataFrame) -> pd.DataFrame:
+def run_sheet_f(df: pd.DataFrame) -> dict:
     """
-    Mediation analyses — OLS + bias-corrected bootstrap.
-    Preacher & Hayes (2008). 5000 iterations. FDR corrected.
+    Returns dict with keys: 'recap', 'full'
     """
     ind  = _get_predictors_for_scale("Ind")
     ma   = _get_predictors_for_scale("MA")
@@ -607,54 +696,65 @@ def run_sheet_f(df: pd.DataFrame) -> pd.DataFrame:
     comp = _get_predictors_for_scale("Comp")
     pm   = _get_predictors_for_scale("PM")
 
+    # All DVs tested in every model
+    all_dvs = [
+        "composite", "engagement_score", "emotions_mean",
+        "E1", "E2", "E3", "E4", "E5", "E6",
+    ]
+
     models = []
 
+    # ------------------------------------------------------------------
     # Series 1 — Tone as IV
-    for p in pm:
-        models += [
-            ("tone", p, "composite",        "1"),
-            ("tone", p, "engagement_score", "1"),
-            ("tone", p, "E3",               "1"),
-            ("tone", p, "E4",               "1"),
-            ("tone", p, "E5",               "1"),
-            ("tone", p, "E6",               "1"),
-        ]
-    for p in comp: models.append(("tone", p, "composite", "1"))
-    for p in ma:   models.append(("tone", p, "composite", "1"))
-    for p in mp:   models.append(("tone", p, "composite", "1"))
-    for pp in ["PP1","PP2","PP3","PP4","PP5"]:
-        for p in pm:
-            models.append(("tone", pp, p, "1"))
+    # ------------------------------------------------------------------
+    # All AI perception predictors as mediators
+    all_ai = pm + comp + ind + ma + mp
+    for med in all_ai:
+        for dv in all_dvs:
+            models.append(("tone", med, dv, "1"))
 
+    # ------------------------------------------------------------------
     # Series 2 — AI Perceptions as IV
-    for p in pm:
-        models += [
-            (p, "E2",            "composite", "2"),
-            (p, "emotions_mean", "composite", "2"),
-        ]
-    for p in ind:
-        for q in pm: models.append((p, q, "composite", "2"))
-        for q in ma: models.append((p, q, "composite", "2"))
-        for q in mp: models.append((p, q, "composite", "2"))
-    for p in comp:
-        for q in ma:
-            for dv in ["E3","E4","E5","E6"]:
-                models.append((p, q, dv, "2"))
-        for q in mp:
-            for dv in ["E3","E4","E5","E6"]:
-                models.append((p, q, dv, "2"))
-    for p in ma:
-        for q in pm: models.append((p, q, "composite", "2"))
-    for p in mp:
-        for q in pm: models.append((p, q, "composite", "2"))
+    # ------------------------------------------------------------------
+    # Each AI perception as IV, other AI perceptions as mediators
+    all_perception_pairs = []
+    for iv in pm + comp + ind + ma + mp:
+        for med in pm + comp + ind + ma + mp:
+            if iv != med:
+                for dv in all_dvs:
+                    all_perception_pairs.append((iv, med, dv, "2"))
+    models += all_perception_pairs
 
-    # Chain mediations
+    # Chain mediations — tone → Ind → PM → DVs
     chain_models = []
     for i in ind:
         for p in pm:
-            chain_models.append(("tone", [i, p], "composite", "1"))
+            for dv in all_dvs:
+                chain_models.append(("tone", [i, p], dv, "1"))
 
-    log.info(f"Sheet F: running {len(models)} simple + {len(chain_models)} chain mediations...")
+    # Filter models where DV or mediator has no data
+    models = [
+        (iv, med, dv, series)
+        for iv, med, dv, series in models
+        if _col_has_data(df, dv) and _col_has_data(df, med)
+    ]
+    chain_models = [
+        (iv, meds, dv, series)
+        for iv, meds, dv, series in chain_models
+        if _col_has_data(df, dv) and all(_col_has_data(df, m) for m in meds)
+    ]
+
+    if not models and not chain_models:
+        log.warning("Sheet F: no models to run — DVs not yet available.")
+        return {
+            "recap": pd.DataFrame({"note": ["Run GPT scoring first."]}),
+            "full":  pd.DataFrame({"note": ["Run GPT scoring first."]}),
+        }
+
+    log.info(
+        f"Sheet F: {len(models)} simple + "
+        f"{len(chain_models)} chain mediations..."
+    )
 
     rows = []
     for iv, med, dv, series in models:
@@ -662,24 +762,28 @@ def run_sheet_f(df: pd.DataFrame) -> pd.DataFrame:
         if row:
             rows.append(row)
 
-    for iv, mediators, dv, series in chain_models:
-        row = _run_chain_mediation(df, iv, mediators, dv, series)
+    for iv, meds, dv, series in chain_models:
+        row = _run_chain_mediation(df, iv, meds, dv, series)
         if row:
             rows.append(row)
 
     if not rows:
-        return pd.DataFrame()
+        return {
+            "recap": pd.DataFrame(),
+            "full":  pd.DataFrame(),
+        }
 
-    result = pd.DataFrame(rows)
+    full = pd.DataFrame(rows)
 
     # FDR correction
     p_vals = []
-    for _, r in result.iterrows():
+    for _, r in full.iterrows():
         ci_low  = r.get("CI_low",  np.nan)
         ci_high = r.get("CI_high", np.nan)
         if pd.notna(ci_low) and pd.notna(ci_high):
-            excludes_zero = (ci_low > 0) or (ci_high < 0)
-            p_vals.append(0.01 if excludes_zero else 0.50)
+            p_vals.append(
+                0.01 if (ci_low > 0 or ci_high < 0) else 0.50
+            )
         else:
             p_vals.append(np.nan)
 
@@ -689,95 +793,117 @@ def run_sheet_f(df: pd.DataFrame) -> pd.DataFrame:
     if valid_ps:
         corrected      = _fdr_correct(valid_ps)
         corrected_iter = iter(corrected)
-        result["p_fdr"] = [
+        full["p_fdr"]  = [
             round(next(corrected_iter), 4) if m else np.nan
             for m in valid_mask
         ]
     else:
-        result["p_fdr"] = np.nan
+        full["p_fdr"] = np.nan
 
-    result["Sig."] = result["p_fdr"].apply(
-        lambda p: _sig_label(p) if pd.notna(p) else "ns"
-    )
+    full["Sig."] = full["p_fdr"].apply(_sig_label)
 
-    log.info(f"Sheet F: {len(result)} mediation models completed.")
-    return result
+    recap = _make_recap(full)
+    log.info(f"Sheet F: {len(full)} models completed.")
+    return {"recap": recap, "full": full}
 
 
 # ---------------------------------------------------------------------------
-# Sheet I — Demographics & robustness checks
+# Sheet I — Demographics & robustness
 # ---------------------------------------------------------------------------
-def run_sheet_i(df: pd.DataFrame) -> pd.DataFrame:
-    rows = []
+def run_sheet_i(df: pd.DataFrame) -> dict:
+    """
+    Returns dict with keys: 'descriptives', 'ancova', 'interactions'
+    """
 
-    rows.append({"Section": "DEMOGRAPHICS", "Test": "", "Variable": "",
-                 "Result": "", "p": "", "Sig.": ""})
+    # ------------------------------------------------------------------
+    # Descriptives
+    # ------------------------------------------------------------------
+    desc_rows = []
 
     if "age" in df.columns:
         age = df["age"].dropna()
-        rows.append({
-            "Section": "Descriptives", "Test": "Age", "Variable": "age",
-            "Result": f"M={age.mean():.1f}, SD={age.std():.1f}, range={int(age.min())}–{int(age.max())}",
-            "p": "", "Sig.": "",
+        desc_rows.append({
+            "Variable": "age",
+            "Label":    "Age",
+            "N":        len(age),
+            "Result":   f"M={age.mean():.1f}, SD={age.std():.1f}, "
+                        f"min={int(age.min())}, max={int(age.max())}",
         })
 
     if "gender" in df.columns:
-        rows.append({
-            "Section": "Descriptives", "Test": "Gender", "Variable": "gender",
-            "Result": str(df["gender"].value_counts().to_dict()),
-            "p": "", "Sig.": "",
+        gc = df["gender"].value_counts(dropna=False)
+        desc_rows.append({
+            "Variable": "gender",
+            "Label":    "Gender",
+            "N":        len(df),
+            "Result":   str(gc.to_dict()),
         })
 
     if "language" in df.columns:
-        rows.append({
-            "Section": "Descriptives", "Test": "Language", "Variable": "language",
-            "Result": str(df["language"].value_counts().to_dict()),
-            "p": "", "Sig.": "",
+        lc = df["language"].value_counts(dropna=False)
+        desc_rows.append({
+            "Variable": "language",
+            "Label":    "Language",
+            "N":        len(df),
+            "Result":   str(lc.to_dict()),
         })
 
     tone_counts = df["tone"].value_counts()
-    rows.append({
-        "Section": "Descriptives", "Test": "Tone balance", "Variable": "tone",
-        "Result": f"Friendly n={tone_counts.get(1,0)}, Professional n={tone_counts.get(0,0)}",
-        "p": "", "Sig.": "",
+    desc_rows.append({
+        "Variable": "tone",
+        "Label":    "Tone condition balance",
+        "N":        len(df),
+        "Result":   f"Friendly (FL_21) n={tone_counts.get(1,0)}, "
+                    f"Professional (FL_22) n={tone_counts.get(0,0)}",
     })
 
+    # ------------------------------------------------------------------
     # ANCOVA
-    main_dvs   = ["composite","engagement_score","E3","E4","E5","E6",
-                   "PM_score","Comp_score","MP_score"]
+    # ------------------------------------------------------------------
+    main_dvs = [
+        "composite", "engagement_score", "emotions_mean",
+        "quantity_mean", "quality_mean",
+        "E1","E2","E3","E4","E5","E6",
+        "PM_score","Comp_score","MP_score",
+    ]
     covariates = [c for c in ["age","gender","language"] if c in df.columns]
 
-    rows.append({"Section": "ANCOVA", "Test": "", "Variable": "",
-                 "Result": f"Covariates: {covariates}", "p": "", "Sig.": ""})
-
+    ancova_rows = []
     for dv in main_dvs:
-        if dv not in df.columns:
+        if not _col_has_data(df, dv):
             continue
         clean = df[[dv, "tone"] + covariates].dropna()
         if len(clean) < 20:
             continue
         try:
-            model = ols(f"{dv} ~ tone + {' + '.join(covariates)}", data=clean).fit()
+            model = ols(
+                f"{dv} ~ tone + {' + '.join(covariates)}",
+                data=clean
+            ).fit()
             aov   = anova_lm(model, typ=2)
-            rows.append({
-                "Section":  "ANCOVA",
-                "Test":     f"Tone → {dv} (controlling demographics)",
-                "Variable": dv,
-                "Result":   f"F={aov.loc['tone','F']:.3f}",
-                "p":        round(aov.loc["tone","PR(>F)"], 4),
-                "Sig.":     _sig_label(aov.loc["tone","PR(>F)"]),
+            f_val = aov.loc["tone", "F"]
+            p_val = aov.loc["tone", "PR(>F)"]
+            ancova_rows.append({
+                "DV":         dv,
+                "Covariates": ", ".join(covariates),
+                "N":          len(clean),
+                "F":          round(f_val, 3),
+                "p":          round(p_val, 4),
+                "Sig.":       _sig_label(p_val),
             })
         except Exception as e:
             log.warning(f"ANCOVA {dv}: {e}")
 
+    # ------------------------------------------------------------------
     # Interactions
+    # ------------------------------------------------------------------
+    inter_rows = []
     for demo_var in ["language", "gender"]:
         if demo_var not in df.columns:
             continue
-        rows.append({"Section": f"Interaction: tone × {demo_var}",
-                     "Test": "", "Variable": "", "Result": "", "p": "", "Sig.": ""})
-        for dv in ["composite", "E3", "PM_score"]:
-            if dv not in df.columns:
+        for dv in ["composite","engagement_score","E3","E4","E5","E6",
+                   "PM_score","Comp_score","MP_score","emotions_mean"]:
+            if not _col_has_data(df, dv):
                 continue
             clean = df[[dv, "tone", demo_var]].dropna()
             if len(clean) < 20:
@@ -786,18 +912,38 @@ def run_sheet_i(df: pd.DataFrame) -> pd.DataFrame:
                 model   = ols(f"{dv} ~ tone * {demo_var}", data=clean).fit()
                 aov     = anova_lm(model, typ=2)
                 int_key = [k for k in aov.index if ":" in k]
-                if int_key:
-                    rows.append({
-                        "Section":  f"Interaction: tone × {demo_var}",
-                        "Test":     f"tone × {demo_var} → {dv}",
-                        "Variable": dv,
-                        "Result":   f"F={aov.loc[int_key[0],'F']:.3f}",
-                        "p":        round(aov.loc[int_key[0],"PR(>F)"], 4),
-                        "Sig.":     _sig_label(aov.loc[int_key[0],"PR(>F)"]),
-                    })
+                if not int_key:
+                    continue
+                f_val = aov.loc[int_key[0], "F"]
+                p_val = aov.loc[int_key[0], "PR(>F)"]
+                inter_rows.append({
+                    "Interaction":  f"tone × {demo_var}",
+                    "DV":           dv,
+                    "N":            len(clean),
+                    "F":            round(f_val, 3),
+                    "p":            round(p_val, 4),
+                    "Sig.":         _sig_label(p_val),
+                })
             except Exception as e:
                 log.warning(f"Interaction {demo_var} × tone → {dv}: {e}")
 
-    result = pd.DataFrame(rows)
-    log.info(f"Sheet I: {len(result)} rows generated.")
-    return result
+    descriptives = pd.DataFrame(desc_rows)
+    ancova       = pd.DataFrame(ancova_rows)
+    interactions = pd.DataFrame(inter_rows)
+
+    # Recaps
+    ancova_recap = _make_recap(ancova)
+    inter_recap  = _make_recap(interactions)
+
+    log.info(
+        f"Sheet I: {len(ancova_rows)} ANCOVA tests, "
+        f"{len(inter_rows)} interaction tests."
+    )
+
+    return {
+        "descriptives":   descriptives,
+        "ancova":         ancova,
+        "ancova_recap":   ancova_recap,
+        "interactions":   interactions,
+        "inter_recap":    inter_recap,
+    }
