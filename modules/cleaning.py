@@ -103,8 +103,21 @@ def load_and_clean(data_path: str) -> pd.DataFrame:
 
     # ------------------------------------------------------------------
     # 5. Filter incomplete responses
-    # Qualtrics sets Finished = "1" for complete responses.
+    # Three criteria, applied in order:
+    #   a) Progress = 100 (completed the full survey)
+    #   b) Finished = 1 (Qualtrics completion flag)
+    #   c) At least 1 message sent to the chatbot
     # ------------------------------------------------------------------
+
+    # a) Progress = 100
+    if "Progress" in df.columns:
+        before = len(df)
+        df = df[df["Progress"].astype(str).str.strip() == "100"].copy()
+        dropped = before - len(df)
+        if dropped > 0:
+            log.info(f"Dropped {dropped} participant(s) with Progress != 100")
+
+    # b) Finished = 1
     if "finished" in df.columns:
         before = len(df)
         df = df[df["finished"].astype(str).str.strip() == "1"].copy()
@@ -112,6 +125,23 @@ def load_and_clean(data_path: str) -> pd.DataFrame:
         if dropped > 0:
             log.info(f"Dropped {dropped} incomplete response(s) (Finished != 1)")
 
+    # c) At least 1 message sent to the chatbot
+    msg_cols_present = [c for c in config.MSG_COLS if c in df.columns]
+    if msg_cols_present:
+        before = len(df)
+        has_message = df[msg_cols_present].apply(
+            lambda row: any(
+                str(v).strip() not in ("", "nan", "None")
+                for v in row
+            ), axis=1
+        )
+        df = df[has_message].copy()
+        dropped = before - len(df)
+        if dropped > 0:
+            log.info(
+                f"Dropped {dropped} participant(s) with no chatbot message "
+                f"(JavaScript tracking data missing)"
+            )
     # ------------------------------------------------------------------
     # 6. Cast Likert scale columns to numeric (integer)
     # Out-of-range values (outside 1–7) are set to NaN with a warning.
