@@ -108,14 +108,12 @@ Return a JSON object with exactly this structure:
   "quantity": <integer from 1 to 5>,
   "quality": <integer from 1 to 5>,
   "emotions": <integer from 1 to 5>,
-  "quantity_justification": "<one or two sentences explaining your quantity score, referencing which axes are covered or skimmed and why>",
-  "quality_justification": "<one or two sentences explaining your quality score, referencing specific elements of depth or lack thereof>",
-  "emotions_justification": "<one or two sentences explaining your emotions score, referencing specific expressions or their absence>",
-  "key_quotes": {
-    "quantity": "<exact quote from participant that most influenced your quantity score, max 100 chars>",
-    "quality": "<exact quote from participant that most influenced your quality score, max 100 chars>",
-    "emotions": "<exact quote from participant that most influenced your emotions score, max 100 chars>"
-  }
+  "quantity_quote": "<cite one short extract per covered axis, separated by ' | '. Format: 'A: [quote] | B: [quote] | C: [quote] | D: [quote]'. Max 150 chars total.>",
+  "quantity_explanation": "<one sentence explaining why these axes are covered or skimmed, referencing the quotes above>",
+  "quality_quote": "<exact quote from participant that best illustrates the depth level you assigned, max 100 chars>",
+  "quality_explanation": "<one sentence explaining why this quote illustrates the quality level assigned>",
+  "emotions_quote": "<exact quote from participant that best illustrates the emotional level you assigned, max 100 chars>",
+  "emotions_explanation": "<one sentence explaining why this quote illustrates the emotions level assigned>"
 }
 
 Return only the JSON object. No preamble, no explanation outside the JSON.
