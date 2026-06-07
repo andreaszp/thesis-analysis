@@ -99,6 +99,7 @@ def _score_once(
             "quality_justification",
             "emotions_justification",
         ]
+        
         for key in required_keys:
             if key not in result:
                 log.warning(
@@ -106,7 +107,13 @@ def _score_once(
                     f"in GPT response — run marked as failed."
                 )
                 return None
-
+        
+        if "key_quotes" not in result:
+            result["key_quotes"] = {
+                "quantity": "",
+                "quality": "",
+                "emotions": ""
+            }
         # Validate score ranges (1–5)
         for dim in ["quantity", "quality", "emotions"]:
             val = result[dim]
@@ -203,10 +210,19 @@ def _score_conversation(
         row["quantity_justification"] = runs[0].get("quantity_justification", "")
         row["quality_justification"]  = runs[0].get("quality_justification", "")
         row["emotions_justification"] = runs[0].get("emotions_justification", "")
+        
+        # Key quotes — from run 1
+        quotes = runs[0].get("key_quotes", {})
+        row["quote_quantity"] = quotes.get("quantity", "")
+        row["quote_quality"]  = quotes.get("quality",  "")
+        row["quote_emotions"] = quotes.get("emotions", "")
     else:
         row["quantity_justification"] = "All runs failed"
         row["quality_justification"]  = "All runs failed"
         row["emotions_justification"] = "All runs failed"
+        row["quote_quantity"] = ""
+        row["quote_quality"]  = ""
+        row["quote_emotions"] = ""
 
     # Key verbatim: first non-empty participant message
     key_verbatim = ""
@@ -298,8 +314,11 @@ def run_gpt_scoring(df: pd.DataFrame) -> pd.DataFrame:
         "emotions_mean", "emotions_sd",
         "composite",
         "quantity_justification",
+        "quote_quantity",
         "quality_justification",
+        "quote_quality",
         "emotions_justification",
+        "quote_emotions",
         "key_verbatim",
     ]
     sheet_g = sheet_g[[c for c in col_order if c in sheet_g.columns]]
