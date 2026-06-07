@@ -163,4 +163,8 @@ if __name__ == "__main__":
         gpt_results = run_sheet_g(df)
         gpt_path = args.output.replace(".xlsx", "_gpt_only.xlsx")
         ensure_output_dir(gpt_path)
-        write_excel({"G": gpt_resu
+        write_excel({"G": gpt_results}, ["G"], gpt_path)
+        log.info(f"GPT-only output written to: {gpt_path}")
+        sys.exit(0)
+
+    run_pipeline(args.data, args.output, skip_gpt=args.skip_gpt)
