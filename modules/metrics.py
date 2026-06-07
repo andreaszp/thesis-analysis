@@ -21,7 +21,23 @@ import config
 
 log = logging.getLogger(__name__)
 
+def _get_predictors_for_scale(scale_name: str) -> list:
+    """
+    Return the right variable(s) for a scale based on Cronbach's alpha result.
+    If composite was validated → returns [scale_score]
+    If items kept separate    → returns individual items
 
+    Args:
+        scale_name: e.g. 'PM', 'Comp', 'Ind', 'MA', 'MP'
+
+    Returns:
+        List of variable names to use in analyses
+    """
+    status = getattr(config, 'SCALE_STATUS', {}).get(scale_name, 'separate')
+    if status == 'composite':
+        return [f"{scale_name}_score"]
+    else:
+        return config.SCALE_ITEMS.get(scale_name, [])
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
