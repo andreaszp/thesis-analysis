@@ -108,9 +108,14 @@ Return a JSON object with exactly this structure:
   "quantity": <integer from 1 to 5>,
   "quality": <integer from 1 to 5>,
   "emotions": <integer from 1 to 5>,
-  "quantity_justification": "<one or two sentences explaining your quantity score, referencing which axes are covered or skimmed>",
+  "quantity_justification": "<one or two sentences explaining your quantity score, referencing which axes are covered or skimmed and why>",
   "quality_justification": "<one or two sentences explaining your quality score, referencing specific elements of depth or lack thereof>",
-  "emotions_justification": "<one or two sentences explaining your emotions score, referencing specific expressions or their absence>"
+  "emotions_justification": "<one or two sentences explaining your emotions score, referencing specific expressions or their absence>",
+  "key_quotes": {
+    "quantity": "<exact quote from participant that most influenced your quantity score, max 100 chars>",
+    "quality": "<exact quote from participant that most influenced your quality score, max 100 chars>",
+    "emotions": "<exact quote from participant that most influenced your emotions score, max 100 chars>"
+  }
 }
 
 Return only the JSON object. No preamble, no explanation outside the JSON.
