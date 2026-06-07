@@ -52,66 +52,87 @@ def _compute_composite_scores(df: pd.DataFrame) -> pd.DataFrame:
     """
     For each scale defined in config.SCALE_ITEMS:
         1. Compute Cronbach's alpha
-        2. If alpha >= config.CRONBACH_MIN (0.70), compute mean score
-        3. If alpha < threshold, log a warning and skip the composite
+        2. If alpha >= config.CRONBACH_MIN (0.70):
+               → compute mean composite score
+               → mark scale as 'composite' in SCALE_STATUS
+        3. If alpha < threshold:
+               → do NOT compute composite
+               → keep items separate
+               → mark scale as 'separate' in SCALE_STATUS
 
-    Composite score = mean of all items in the scale (row-wise).
-    Participants with any missing item get NaN for that composite.
+    SCALE_STATUS is stored in config at runtime so analyses.py
+    knows automatically which variables to use for each scale.
     """
     log.info("--- Cronbach's alpha verification ---")
+
+    # Runtime status dict — read by analyses.py
+    # { scale_name: 'composite' or 'separate' }
+    scale_status = {}
 
     for scale_name, items in config.SCALE_ITEMS.items():
         score_col = f"{scale_name}_score"
 
-        # Check all items are present in the DataFrame
+        # Check all items are present
         missing_items = [it for it in items if it not in df.columns]
         if missing_items:
             log.warning(
                 f"Scale {scale_name}: missing items {missing_items} "
-                f"— composite {score_col} will not be computed."
+                f"— kept separate."
             )
+            scale_status[scale_name] = "separate"
             continue
 
-        # Extract item matrix (drop rows with any missing value for alpha)
+        # Extract item matrix
         item_matrix = df[items].apply(pd.to_numeric, errors="coerce")
         complete_matrix = item_matrix.dropna()
 
         if len(complete_matrix) < 10:
             log.warning(
                 f"Scale {scale_name}: only {len(complete_matrix)} complete "
-                f"rows — Cronbach's alpha may be unreliable."
+                f"rows — kept separate."
             )
+            scale_status[scale_name] = "separate"
+            continue
 
         # Compute Cronbach's alpha
         alpha = _cronbach_alpha(complete_matrix)
         n_complete = len(complete_matrix)
 
         if alpha is None:
-            log.warning(
-                f"Scale {scale_name}: could not compute alpha "
-                f"(need >= 2 items and >= 2 participants)."
-            )
+            log.warning(f"Scale {scale_name}: could not compute alpha.")
+            scale_status[scale_name] = "separate"
             continue
 
-        log.info(
-            f"Scale {scale_name} ({len(items)} items, n={n_complete}): "
-            f"alpha = {alpha:.3f} "
-            f"{'✓ composite computed' if alpha >= config.CRONBACH_MIN else '✗ below threshold — composite NOT computed'}"
-        )
-
         if alpha >= config.CRONBACH_MIN:
-            # Compute row-wise mean (NaN if any item is missing)
+            # ✅ Composite: compute mean score
             df[score_col] = item_matrix.mean(axis=1)
-        else:
-            log.warning(
-                f"Scale {scale_name}: alpha = {alpha:.3f} < {config.CRONBACH_MIN} "
-                f"— {score_col} will not be used in analyses. "
-                f"Items will be kept separate."
+            scale_status[scale_name] = "composite"
+            log.info(
+                f"Scale {scale_name} ({len(items)} items, n={n_complete}): "
+                f"alpha = {alpha:.3f} ✅ → composite {score_col} computed."
             )
+        else:
+            # ❌ Separate: keep items as-is, composite = NaN
             df[score_col] = np.nan
+            scale_status[scale_name] = "separate"
+            log.info(
+                f"Scale {scale_name} ({len(items)} items, n={n_complete}): "
+                f"alpha = {alpha:.3f} ❌ → items {items} kept separate."
+            )
+
+    # Store status in config for analyses.py to read
+    config.SCALE_STATUS = scale_status
+
+    # Log summary
+    log.info("--- Scale status summary ---")
+    for scale, status in scale_status.items():
+        items = config.SCALE_ITEMS[scale]
+        if status == "composite":
+            log.info(f"  {scale}_score → COMPOSITE (used in analyses)")
+        else:
+            log.info(f"  {scale} → SEPARATE: {items} (used individually)")
 
     return df
-
 
 def _cronbach_alpha(item_matrix: pd.DataFrame) -> float | None:
     """
