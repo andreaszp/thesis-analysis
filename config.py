@@ -155,19 +155,49 @@ CRONBACH_MIN: float       = 0.70
 NORMALITY_TEST: str       = "shapiro"
 
 # ---------------------------------------------------------------------------
-# EXCEL FORMATTING — consistent color scheme across all sheets
 # ---------------------------------------------------------------------------
+# EXCEL FORMATTING
+# ---------------------------------------------------------------------------
+
+# Main color palette — teal / burnt orange / sage green / violet
 COLORS: dict = {
-    "header_bg":         "1F3864",  # dark navy  — column headers
-    "header_font":       "FFFFFF",  # white      — header text
-    "sig_highlight":     "FFD966",  # yellow     — significant results
-    "block_ai":          "D9E1F2",  # light blue — AI perception variables
-    "block_eval":        "E2EFDA",  # light green — chatbot evaluation
-    "block_quality":     "FCE4D6",  # light orange — feedback quality
-    "block_engage":      "EDD9F7",  # light purple — engagement
-    "block_demo":        "F2F2F2",  # light grey  — demographics
-    "block_personality": "FFF2CC",  # light yellow — perceived personality
-    "alt_row":           "F7F9FC",  # very light blue — alternating rows
+    # Headers
+    "header_bg":        "1B4F72",   # deep navy — main headers
+    "header_font":      "FFFFFF",   # white
+
+    # Block colors for Sheet K — vivid, readable
+    "block_ai":         "1A5276",   # deep teal — AI perceptions
+    "block_eval":       "784212",   # burnt orange — chatbot evaluation
+    "block_quality":    "1D6A39",   # sage green — feedback quality
+    "block_engage":     "4A235A",   # deep violet — engagement
+    "block_demo":       "424949",   # dark grey — demographics
+    "block_personality":"7B241C",   # deep red — perceived personality
+    "block_tone":       "1F618D",   # steel blue — tone/condition
+
+    # Section title colors
+    "section_primary":  "1B4F72",   # deep navy
+    "section_secondary":"2E86C1",   # medium blue
+
+    # Row alternation
+    "alt_row":          "EBF5FB",   # very light blue
+    "row_white":        "FFFFFF",   # white
+
+    # p-value colors (applied to p-value cells)
+    "p_ns":             "E8E8E8",   # light grey — not significant (p > 0.05)
+    "p_05":             "F39C12",   # orange — p < 0.05
+    "p_01":             "27AE60",   # green — p < 0.01
+    "p_001":            "1E8449",   # dark green — p < 0.001
+
+    # Legacy (kept for compatibility)
+    "sig_highlight":    "F39C12",
+}
+
+# p-value color thresholds
+P_VALUE_COLORS: dict = {
+    0.05:  "F39C12",   # orange
+    0.01:  "27AE60",   # green
+    0.001: "1E8449",   # dark green
+    999:   "E8E8E8",   # grey (ns)
 }
 # ---------------------------------------------------------------------------
 # SCALE STATUS — populated at runtime by metrics.py
