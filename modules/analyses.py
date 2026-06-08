@@ -31,7 +31,38 @@ import config
 log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-
+# ---------------------------------------------------------------------------
+# Variable labels — used in Sheet I for readable output
+# ---------------------------------------------------------------------------
+PREDICTOR_LABELS: dict = {
+    "tone":             "Chatbot Tone (0=Pro / 1=Friendly)",
+    "PM_score":         "Perceived Manipulation (composite)",
+    "PM1":              "PM — threat to freedom",
+    "PM2":              "PM — decision override",
+    "PM3":              "PM — manipulation attempt",
+    "PM4":              "PM — pressure felt",
+    "Comp_score":       "Competence (composite)",
+    "Comp1":            "Competence — skills",
+    "Comp2":            "Competence — morality",
+    "Ind1":             "Autonomy — AI plans & goals",
+    "Ind2":             "Autonomy — AI self-control",
+    "MA1":              "Moral Agency — moral gravity AI→human",
+    "MA2":              "Moral Agency — AI moral responsibility",
+    "MP_score":         "Moral Patiency (composite)",
+    "MP1":              "Moral Patiency — moral gravity human→AI",
+    "MP2":              "Moral Patiency — AI right to consideration",
+    "E1":               "Required effort",
+    "E2":               "Engagement felt",
+    "E3":               "Chatbot appreciation",
+    "E4":               "Conversation utility",
+    "E5":               "Reuse intention",
+    "E6":               "Chatbot preference",
+    "composite":        "Feedback composite score",
+    "engagement_score": "Engagement score (behavioural)",
+    "emotions_mean":    "Emotional expression (mean)",
+    "quantity_mean":    "Feedback quantity (mean)",
+    "quality_mean":     "Feedback quality (mean)",
+}
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
