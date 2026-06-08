@@ -140,6 +140,10 @@ GPT_MODEL: str        = "gpt-4o"
 GPT_TEMPERATURE: float = 0.0
 GPT_RUNS: int         = 3
 GPT_MAX_TOKENS: int   = 500
+# Cache — saved to Drive to survive session disconnections and credit issues
+# If the scoring is interrupted, relaunching will skip already-scored
+# participants and continue from where it stopped.
+GPT_CACHE_PATH: str = "/content/drive/MyDrive/soundflow/gpt_cache.json"
 
 # ---------------------------------------------------------------------------
 # STATISTICAL THRESHOLDS
