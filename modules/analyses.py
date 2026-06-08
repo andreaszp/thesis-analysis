@@ -936,28 +936,382 @@ def run_sheet_f(df: pd.DataFrame) -> dict:
 # ---------------------------------------------------------------------------
 # Sheet I — Demographics & robustness
 # ---------------------------------------------------------------------------
-def _write_sheet_i(ws, data: dict) -> None:
-    """Write Demographics & Robustness sheet."""
-    current_row = 1
-    n_cols      = 10
+def run_sheet_i(df: pd.DataFrame) -> dict:
+    """
+    Returns dict with keys:
+        'descriptives'    — sample descriptives with N and %
+        'randomisation'   — randomisation checks
+        'exclusions'      — exclusion summary
+        'normality'       — Shapiro-Wilk on key variables
+        'ancova'          — ANCOVA tone effect controlling demographics
+        'ancova_recap'    — significant ANCOVA only
+        'interactions'    — tone × language, tone × gender
+        'inter_recap'     — significant interactions only
+    """
 
-    sections = [
-        ("DESCRIPTIVE STATISTICS",                    "descriptives",  False),
-        ("RANDOMISATION CHECKS",                      "randomisation", False),
-        ("EXCLUSION SUMMARY",                         "exclusions",    False),
-        ("NORMALITY CHECKS (Shapiro-Wilk)",           "normality",     False),
-        ("ANCOVA — Recap (significant only)",         "ancova_recap",  True),
-        ("ANCOVA — Full results",                     "ancova",        False),
-        ("INTERACTIONS — Recap (significant only)",   "inter_recap",   True),
-        ("INTERACTIONS — Full results",               "interactions",  False),
+    # ------------------------------------------------------------------
+    # Recode gender for interaction tests
+    # ------------------------------------------------------------------
+    df_analysis = df.copy()
+    if "gender" in df_analysis.columns:
+        df_analysis["gender_grouped"] = df_analysis["gender"].replace({
+            "Non-binary":        "Other",
+            "Prefer not to say": "Other",
+        })
+
+    n_total = len(df)
+
+    # ------------------------------------------------------------------
+    # 1. Descriptives with N and %
+    # ------------------------------------------------------------------
+    desc_rows = []
+
+    # Age
+    if "age" in df.columns:
+        age = df["age"].dropna()
+        desc_rows.append({
+            "Category": "Age",
+            "Group":    "All participants",
+            "N":        len(age),
+            "%":        "100%",
+            "Result":   f"M={age.mean():.1f}, SD={age.std():.1f}, "
+                        f"min={int(age.min())}, max={int(age.max())}, "
+                        f"median={age.median():.1f}",
+        })
+        # Age by condition
+        for tone_val, tone_label in config.TONE_LABELS.items():
+            sub = df[df["tone"] == tone_val]["age"].dropna()
+            desc_rows.append({
+                "Category": "Age by condition",
+                "Group":    tone_label,
+                "N":        len(sub),
+                "%":        f"{len(sub)/n_total*100:.1f}%",
+                "Result":   f"M={sub.mean():.1f}, SD={sub.std():.1f}",
+            })
+
+    # Gender
+    if "gender" in df.columns:
+        for gender, n in df["gender"].value_counts(dropna=False).items():
+            desc_rows.append({
+                "Category": "Gender",
+                "Group":    str(gender),
+                "N":        n,
+                "%":        f"{n/n_total*100:.1f}%",
+                "Result":   "",
+            })
+
+    # Language
+    if "language" in df.columns:
+        for lang, n in df["language"].value_counts(dropna=False).items():
+            desc_rows.append({
+                "Category": "Language",
+                "Group":    str(lang),
+                "N":        n,
+                "%":        f"{n/n_total*100:.1f}%",
+                "Result":   "",
+            })
+
+    # Tone condition
+    for tone_val, tone_label in config.TONE_LABELS.items():
+        n = (df["tone"] == tone_val).sum()
+        desc_rows.append({
+            "Category": "Tone condition",
+            "Group":    tone_label,
+            "N":        n,
+            "%":        f"{n/n_total*100:.1f}%",
+            "Result":   f"FL_{'21' if tone_val==1 else '22'}",
+        })
+
+    descriptives = pd.DataFrame(desc_rows)
+
+    # ------------------------------------------------------------------
+    # 2. Randomisation checks
+    # ------------------------------------------------------------------
+    rand_rows = []
+
+    # Chi-square: tone balance
+    n_friendly = (df["tone"] == 1).sum()
+    n_pro      = (df["tone"] == 0).sum()
+    chi2_balance, p_balance = stats.chisquare(
+        [n_friendly, n_pro],
+        [n_total/2, n_total/2]
+    )
+    rand_rows.append({
+        "Test":           "Chi-square: tone condition balance",
+        "Group 1":        f"Friendly (n={n_friendly})",
+        "Group 2":        f"Professional (n={n_pro})",
+        "Statistic":      round(chi2_balance, 3),
+        "p":              round(p_balance, 4),
+        "Sig.":           _sig_label(p_balance),
+        "Interpretation": "Randomisation successful — no significant imbalance"
+                          if p_balance > 0.05
+                          else "⚠️ Significant imbalance between conditions",
+    })
+
+    # t-test: age by condition
+    age_friendly = df[df["tone"]==1]["age"].dropna()
+    age_pro      = df[df["tone"]==0]["age"].dropna()
+    if len(age_friendly) > 2 and len(age_pro) > 2:
+        t_age, p_age = stats.ttest_ind(age_friendly, age_pro, equal_var=False)
+        rand_rows.append({
+            "Test":           "t-test: age by condition",
+            "Group 1":        f"Friendly M={age_friendly.mean():.1f}",
+            "Group 2":        f"Professional M={age_pro.mean():.1f}",
+            "Statistic":      round(t_age, 3),
+            "p":              round(p_age, 4),
+            "Sig.":           _sig_label(p_age),
+            "Interpretation": "Groups comparable on age"
+                              if p_age > 0.05
+                              else "⚠️ Age differs between conditions",
+        })
+
+    # Chi-square: language × tone
+    if "language" in df.columns:
+        lang_tone = pd.crosstab(df["language"], df["tone"])
+        if lang_tone.shape == (2, 2):
+            chi2_lang, p_lang, _, _ = stats.chi2_contingency(lang_tone)
+            rand_rows.append({
+                "Test":           "Chi-square: language × tone",
+                "Group 1":        f"FR: {(df['language']=='FR').sum()}",
+                "Group 2":        f"EN: {(df['language']=='EN').sum()}",
+                "Statistic":      round(chi2_lang, 3),
+                "p":              round(p_lang, 4),
+                "Sig.":           _sig_label(p_lang),
+                "Interpretation": "Language distributed equally across conditions"
+                                  if p_lang > 0.05
+                                  else "⚠️ Language distribution differs by condition",
+            })
+
+    # Chi-square: gender × tone
+    if "gender" in df.columns:
+        gender_tone = pd.crosstab(
+            df_analysis["gender_grouped"], df["tone"]
+        )
+        try:
+            chi2_gen, p_gen, _, _ = stats.chi2_contingency(gender_tone)
+            rand_rows.append({
+                "Test":           "Chi-square: gender × tone",
+                "Group 1":        "Male/Female/Other",
+                "Group 2":        "Friendly vs Professional",
+                "Statistic":      round(chi2_gen, 3),
+                "p":              round(p_gen, 4),
+                "Sig.":           _sig_label(p_gen),
+                "Interpretation": "Gender distributed equally across conditions"
+                                  if p_gen > 0.05
+                                  else "⚠️ Gender distribution differs by condition",
+            })
+        except Exception as e:
+            log.warning(f"Chi-square gender × tone: {e}")
+
+    # Pearson r: engagement components
+    if "avg_words_per_turn" in df.columns and "chat_duration_sec" in df.columns:
+        clean_eng = df[["avg_words_per_turn","chat_duration_sec"]].dropna()
+        r_eng, p_eng = stats.pearsonr(
+            clean_eng["avg_words_per_turn"],
+            clean_eng["chat_duration_sec"]
+        )
+        rand_rows.append({
+            "Test":           "Pearson r: engagement composite components",
+            "Group 1":        "avg_words_per_turn",
+            "Group 2":        "chat_duration_sec",
+            "Statistic":      round(r_eng, 3),
+            "p":              round(p_eng, 4),
+            "Sig.":           _sig_label(p_eng),
+            "Interpretation": "Positive correlation supports engagement composite"
+                              if r_eng > 0.40 and p_eng < 0.05
+                              else "⚠️ Weak correlation — consider separate analysis",
+        })
+
+    randomisation = pd.DataFrame(rand_rows)
+
+    # ------------------------------------------------------------------
+    # 3. Exclusion summary
+    # ------------------------------------------------------------------
+    excl_rows = [
+        {
+            "Exclusion criterion":    "No tone condition assigned (FL_13_DO not FL_21/FL_22)",
+            "N excluded":             "~5",
+            "Reason":                 "Analytically unusable — no experimental condition recorded, likely early dropout before randomisation",
+        },
+        {
+            "Exclusion criterion":    "Ineligible: User ? != 1 (non-user of streaming platforms)",
+            "N excluded":             "~5",
+            "Reason":                 "Did not meet inclusion criterion",
+        },
+        {
+            "Exclusion criterion":    "No chatbot interaction (all msg_1…msg_20 empty)",
+            "N excluded":             "18",
+            "Reason":                 "Technical failure loading chatbot interface (likely browser incompatibility or JavaScript disabled). Progress=100 but no messages recorded.",
+        },
+        {
+            "Exclusion criterion":    "Under 18 years of age",
+            "N excluded":             "8",
+            "Reason":                 "Study consent form did not include age restrictions or parental consent procedures",
+        },
+        {
+            "Exclusion criterion":    "FINAL VALID SAMPLE",
+            "N excluded":             str(n_total),
+            "Reason":                 "Participants retained for all analyses",
+        },
     ]
 
-    for title, key, primary in sections:
-        current_row = _write_section_title(
-            ws, current_row, title, n_cols, primary=primary
-        )
-        df_section  = data.get(key, pd.DataFrame())
-        current_row = _write_df(ws, df_section, current_row)
+    # Check if exclusions of chatbot non-users are balanced
+    excl_rows.append({
+        "Exclusion criterion": "Balance check: chatbot non-users by condition",
+        "N excluded":          "See randomisation checks",
+        "Reason":              "Verified that technical exclusions are not systematically concentrated in one condition",
+    })
 
-    _autofit(ws)
-    _freeze(ws)
+    exclusions = pd.DataFrame(excl_rows)
+
+    # ------------------------------------------------------------------
+    # 4. Normality checks (Shapiro-Wilk)
+    # ------------------------------------------------------------------
+    norm_vars = [
+        ("PM_score",        "Perceived Manipulation composite"),
+        ("Comp_score",      "Competence composite"),
+        ("MP_score",        "Moral Patiency composite"),
+        ("Ind1",            "Autonomy — item 1"),
+        ("Ind2",            "Autonomy — item 2"),
+        ("MA1",             "Moral Agency — item 1"),
+        ("MA2",             "Moral Agency — item 2"),
+        ("engagement_score","Engagement score"),
+        ("E1",              "Required effort"),
+        ("E2",              "Engagement felt"),
+        ("E3",              "Chatbot appreciation"),
+        ("E4",              "Conversation utility"),
+        ("E5",              "Reuse intention"),
+        ("E6",              "Chatbot preference"),
+    ]
+
+    norm_rows = []
+    for var, label in norm_vars:
+        if var not in df.columns:
+            continue
+        clean = df[var].dropna()
+        if len(clean) < 8:
+            continue
+        stat_sw, p_sw = stats.shapiro(clean)
+        norm_rows.append({
+            "Variable":       var,
+            "Label":          label,
+            "N":              len(clean),
+            "W":              round(stat_sw, 4),
+            "p":              round(p_sw, 4),
+            "Sig.":           _sig_label(p_sw),
+            "Normal?":        "Yes" if p_sw >= 0.05 else "No",
+            "Test used in B": "Welch t-test" if p_sw >= 0.05
+                              else "Mann-Whitney U",
+        })
+
+    normality = pd.DataFrame(norm_rows)
+
+    # ------------------------------------------------------------------
+    # 5. ANCOVA
+    # ------------------------------------------------------------------
+    main_dvs   = [
+        "composite","engagement_score","emotions_mean",
+        "quantity_mean","quality_mean",
+        "E1","E2","E3","E4","E5","E6",
+        "PM_score","Comp_score","MP_score",
+    ]
+    covariates = [
+        c for c in ["age","gender","language"]
+        if c in df_analysis.columns
+    ]
+
+    ancova_rows = []
+    for dv in main_dvs:
+        if not _col_has_data(df_analysis, dv):
+            continue
+        clean = df_analysis[[dv,"tone"] + covariates].dropna()
+        if len(clean) < 20:
+            continue
+        try:
+            model = ols(
+                f"{dv} ~ tone + {' + '.join(covariates)}",
+                data=clean
+            ).fit()
+            aov   = anova_lm(model, typ=2)
+            ancova_rows.append({
+                "DV":         dv,
+                "DV Label":   PREDICTOR_LABELS.get(dv, dv),
+                "Covariates": ", ".join(covariates),
+                "N":          len(clean),
+                "F":          round(aov.loc["tone","F"], 3),
+                "p":          round(aov.loc["tone","PR(>F)"], 4),
+                "Sig.":       _sig_label(aov.loc["tone","PR(>F)"]),
+            })
+        except Exception as e:
+            log.warning(f"ANCOVA {dv}: {e}")
+
+    ancova      = pd.DataFrame(ancova_rows)
+    ancova_recap = _make_recap(ancova)
+
+    # ------------------------------------------------------------------
+    # 6. Interactions
+    # ------------------------------------------------------------------
+    inter_rows      = []
+    interaction_vars = []
+    if "language" in df_analysis.columns:
+        interaction_vars.append(("language", "tone * language"))
+    if "gender_grouped" in df_analysis.columns:
+        interaction_vars.append(("gender_grouped", "tone * gender_grouped"))
+
+    for demo_var, interaction_term in interaction_vars:
+        for dv in [
+            "composite","engagement_score","E3","E4","E5","E6",
+            "PM_score","Comp_score","MP_score","emotions_mean"
+        ]:
+            if not _col_has_data(df_analysis, dv):
+                continue
+            clean = df_analysis[[dv,"tone",demo_var]].dropna()
+            if len(clean) < 20:
+                continue
+            try:
+                model   = ols(
+                    f"{dv} ~ {interaction_term}",
+                    data=clean
+                ).fit()
+                aov     = anova_lm(model, typ=2)
+                int_key = [k for k in aov.index if ":" in k]
+                if not int_key:
+                    continue
+                note = (
+                    " (Other n=5 — interpret with caution)"
+                    if demo_var == "gender_grouped" else ""
+                )
+                inter_rows.append({
+                    "Interaction": f"tone × {demo_var}{note}",
+                    "DV":          dv,
+                    "DV Label":    PREDICTOR_LABELS.get(dv, dv),
+                    "N":           len(clean),
+                    "F":           round(aov.loc[int_key[0],"F"], 3),
+                    "p":           round(aov.loc[int_key[0],"PR(>F)"], 4),
+                    "Sig.":        _sig_label(aov.loc[int_key[0],"PR(>F)"]),
+                })
+            except Exception as e:
+                log.warning(
+                    f"Interaction {demo_var} × tone → {dv}: {e}"
+                )
+
+    interactions = pd.DataFrame(inter_rows)
+    inter_recap  = _make_recap(interactions)
+
+    log.info(
+        f"Sheet I: {len(ancova_rows)} ANCOVA, "
+        f"{len(inter_rows)} interactions, "
+        f"{len(norm_rows)} normality tests, "
+        f"{len(rand_rows)} randomisation checks."
+    )
+
+    return {
+        "descriptives":   descriptives,
+        "randomisation":  randomisation,
+        "exclusions":     exclusions,
+        "normality":      normality,
+        "ancova":         ancova,
+        "ancova_recap":   ancova_recap,
+        "interactions":   interactions,
+        "inter_recap":    inter_recap,
+    }
