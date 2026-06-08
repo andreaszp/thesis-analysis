@@ -936,173 +936,28 @@ def run_sheet_f(df: pd.DataFrame) -> dict:
 # ---------------------------------------------------------------------------
 # Sheet I — Demographics & robustness
 # ---------------------------------------------------------------------------
-def run_sheet_i(df: pd.DataFrame) -> dict:
-    """
-    Returns dict with keys: 'descriptives', 'ancova', 'interactions'
-    """
+def _write_sheet_i(ws, data: dict) -> None:
+    """Write Demographics & Robustness sheet."""
+    current_row = 1
+    n_cols      = 10
 
-    # ------------------------------------------------------------------
-    # Descriptives
-    # ------------------------------------------------------------------
-    desc_rows = []
-
-    if "age" in df.columns:
-        age = df["age"].dropna()
-        desc_rows.append({
-            "Variable": "age",
-            "Label":    "Age",
-            "N":        len(age),
-            "Result":   f"M={age.mean():.1f}, SD={age.std():.1f}, "
-                        f"min={int(age.min())}, max={int(age.max())}",
-        })
-
-    if "gender" in df.columns:
-        gc = df["gender"].value_counts(dropna=False)
-        desc_rows.append({
-            "Variable": "gender",
-            "Label":    "Gender",
-            "N":        len(df),
-            "Result":   str(gc.to_dict()),
-        })
-
-    if "language" in df.columns:
-        lc = df["language"].value_counts(dropna=False)
-        desc_rows.append({
-            "Variable": "language",
-            "Label":    "Language",
-            "N":        len(df),
-            "Result":   str(lc.to_dict()),
-        })
-
-    tone_counts = df["tone"].value_counts()
-    desc_rows.append({
-        "Variable": "tone",
-        "Label":    "Tone condition balance",
-        "N":        len(df),
-        "Result":   f"Friendly (FL_21) n={tone_counts.get(1,0)}, "
-                    f"Professional (FL_22) n={tone_counts.get(0,0)}",
-    })
-
-    # ------------------------------------------------------------------
-    # Recode gender for analyses
-    # Non-binary (n=1) and Prefer not to say merged into 'Other'
-    # for interaction tests only — original gender kept for descriptives
-    # and ANCOVA covariate
-    # ------------------------------------------------------------------
-    df_analysis = df.copy()
-    if "gender" in df_analysis.columns:
-        df_analysis["gender_grouped"] = df_analysis["gender"].replace({
-            "Non-binary":        "Other",
-            "Prefer not to say": "Other",
-        })
-    else:
-        df_analysis["gender_grouped"] = np.nan
-
-    # ------------------------------------------------------------------
-    # ANCOVA — tone effect controlling for demographics
-    # Uses original gender (4 categories) as covariate
-    # ------------------------------------------------------------------
-    main_dvs   = [
-        "composite", "engagement_score", "emotions_mean",
-        "quantity_mean", "quality_mean",
-        "E1","E2","E3","E4","E5","E6",
-        "PM_score","Comp_score","MP_score",
+    sections = [
+        ("DESCRIPTIVE STATISTICS",                    "descriptives",  False),
+        ("RANDOMISATION CHECKS",                      "randomisation", False),
+        ("EXCLUSION SUMMARY",                         "exclusions",    False),
+        ("NORMALITY CHECKS (Shapiro-Wilk)",           "normality",     False),
+        ("ANCOVA — Recap (significant only)",         "ancova_recap",  True),
+        ("ANCOVA — Full results",                     "ancova",        False),
+        ("INTERACTIONS — Recap (significant only)",   "inter_recap",   True),
+        ("INTERACTIONS — Full results",               "interactions",  False),
     ]
-    covariates = [c for c in ["age","gender","language"]
-                  if c in df_analysis.columns]
 
-    ancova_rows = []
-    for dv in main_dvs:
-        if not _col_has_data(df_analysis, dv):
-            continue
-        clean = df_analysis[[dv, "tone"] + covariates].dropna()
-        if len(clean) < 20:
-            continue
-        try:
-            model = ols(
-                f"{dv} ~ tone + {' + '.join(covariates)}",
-                data=clean
-            ).fit()
-            aov   = anova_lm(model, typ=2)
-            f_val = aov.loc["tone", "F"]
-            p_val = aov.loc["tone", "PR(>F)"]
-            ancova_rows.append({
-                "DV":         dv,
-                "Covariates": ", ".join(covariates),
-                "N":          len(clean),
-                "F":          round(f_val, 3),
-                "p":          round(p_val, 4),
-                "Sig.":       _sig_label(p_val),
-            })
-        except Exception as e:
-            log.warning(f"ANCOVA {dv}: {e}")
+    for title, key, primary in sections:
+        current_row = _write_section_title(
+            ws, current_row, title, n_cols, primary=primary
+        )
+        df_section  = data.get(key, pd.DataFrame())
+        current_row = _write_df(ws, df_section, current_row)
 
-    # ------------------------------------------------------------------
-    # Interactions — tone × language and tone × gender_grouped
-    # Uses gender_grouped (Male/Female/Other) for interactions
-    # Note: 'Other' category has small n — interpret with caution
-    # ------------------------------------------------------------------
-    inter_rows = []
-    interaction_vars = []
-
-    if "language" in df_analysis.columns:
-        interaction_vars.append(("language", "tone * language"))
-    if "gender_grouped" in df_analysis.columns:
-        interaction_vars.append(("gender_grouped", "tone * gender_grouped"))
-
-    for demo_var, interaction_term in interaction_vars:
-        for dv in ["composite","engagement_score","E3","E4","E5","E6",
-                   "PM_score","Comp_score","MP_score","emotions_mean"]:
-            if not _col_has_data(df_analysis, dv):
-                continue
-            clean = df_analysis[[dv, "tone", demo_var]].dropna()
-            if len(clean) < 20:
-                continue
-            try:
-                model   = ols(
-                    f"{dv} ~ {interaction_term}",
-                    data=clean
-                ).fit()
-                aov     = anova_lm(model, typ=2)
-                int_key = [k for k in aov.index if ":" in k]
-                if not int_key:
-                    continue
-                f_val = aov.loc[int_key[0], "F"]
-                p_val = aov.loc[int_key[0], "PR(>F)"]
-                note  = (
-                    " (Other n=5 — interpret with caution)"
-                    if demo_var == "gender_grouped" else ""
-                )
-                inter_rows.append({
-                    "Interaction":  f"tone × {demo_var}{note}",
-                    "DV":           dv,
-                    "N":            len(clean),
-                    "F":            round(f_val, 3),
-                    "p":            round(p_val, 4),
-                    "Sig.":         _sig_label(p_val),
-                })
-            except Exception as e:
-                log.warning(
-                    f"Interaction {demo_var} × tone → {dv}: {e}"
-                )
-
-    descriptives = pd.DataFrame(desc_rows)
-    ancova       = pd.DataFrame(ancova_rows)
-    interactions = pd.DataFrame(inter_rows)
-
-    # Recaps
-    ancova_recap = _make_recap(ancova)
-    inter_recap  = _make_recap(interactions)
-
-    log.info(
-        f"Sheet I: {len(ancova_rows)} ANCOVA tests, "
-        f"{len(inter_rows)} interaction tests."
-    )
-
-    return {
-        "descriptives":   descriptives,
-        "ancova":         ancova,
-        "ancova_recap":   ancova_recap,
-        "interactions":   interactions,
-        "inter_recap":    inter_recap,
-    }
+    _autofit(ws)
+    _freeze(ws)
