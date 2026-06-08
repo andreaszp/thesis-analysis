@@ -688,7 +688,21 @@ def _run_chain_mediation(
 
 def run_sheet_f(df: pd.DataFrame) -> dict:
     """
-    Returns dict with keys: 'recap', 'full'
+    Mediation analyses — OLS + bias-corrected bootstrap.
+    Preacher & Hayes (2008). 5000 iterations. FDR corrected.
+
+    Series 1 — Tone as IV:
+        tone → [AI perception] → [all DVs]
+        tone → Ind → PM → [all DVs]  (chain)
+
+    Series 2 — AI Perceptions as IV:
+        Bloc A: [perception] → E2               → composite
+                [perception] → engagement_score → composite
+                [perception] → E3               → composite
+        Bloc B: [perception IV] → [perception M] → [all DVs]
+
+    DVs tested in every model:
+        composite, engagement_score, emotions_mean, E1, E2, E3, E4, E5, E6
     """
     ind  = _get_predictors_for_scale("Ind")
     ma   = _get_predictors_for_scale("MA")
@@ -696,7 +710,8 @@ def run_sheet_f(df: pd.DataFrame) -> dict:
     comp = _get_predictors_for_scale("Comp")
     pm   = _get_predictors_for_scale("PM")
 
-    # All DVs tested in every model
+    all_ai = pm + comp + ind + ma + mp
+
     all_dvs = [
         "composite", "engagement_score", "emotions_mean",
         "E1", "E2", "E3", "E4", "E5", "E6",
@@ -707,8 +722,6 @@ def run_sheet_f(df: pd.DataFrame) -> dict:
     # ------------------------------------------------------------------
     # Series 1 — Tone as IV
     # ------------------------------------------------------------------
-    # All AI perception predictors as mediators
-    all_ai = pm + comp + ind + ma + mp
     for med in all_ai:
         for dv in all_dvs:
             models.append(("tone", med, dv, "1"))
@@ -716,23 +729,33 @@ def run_sheet_f(df: pd.DataFrame) -> dict:
     # ------------------------------------------------------------------
     # Series 2 — AI Perceptions as IV
     # ------------------------------------------------------------------
-    # Each AI perception as IV, other AI perceptions as mediators
-    all_perception_pairs = []
-    for iv in pm + comp + ind + ma + mp:
-        for med in pm + comp + ind + ma + mp:
-            if iv != med:
-                for dv in all_dvs:
-                    all_perception_pairs.append((iv, med, dv, "2"))
-    models += all_perception_pairs
 
-    # Chain mediations — tone → Ind → PM → DVs
+    # Bloc A — Engagement as mediator (3 operationalisations)
+    for iv in all_ai:
+        models.append((iv, "E2",               "composite", "2"))
+        models.append((iv, "engagement_score", "composite", "2"))
+        models.append((iv, "E3",               "composite", "2"))
+
+    # Bloc B — AI perceptions influencing each other → all DVs
+    for iv in all_ai:
+        for med in all_ai:
+            if iv == med:
+                continue
+            for dv in all_dvs:
+                models.append((iv, med, dv, "2"))
+
+    # ------------------------------------------------------------------
+    # Chain mediations — tone → Ind → PM → all DVs
+    # ------------------------------------------------------------------
     chain_models = []
     for i in ind:
         for p in pm:
             for dv in all_dvs:
                 chain_models.append(("tone", [i, p], dv, "1"))
 
-    # Filter models where DV or mediator has no data
+    # ------------------------------------------------------------------
+    # Filter models where DV or mediator has no data yet
+    # ------------------------------------------------------------------
     models = [
         (iv, med, dv, series)
         for iv, med, dv, series in models
@@ -756,6 +779,9 @@ def run_sheet_f(df: pd.DataFrame) -> dict:
         f"{len(chain_models)} chain mediations..."
     )
 
+    # ------------------------------------------------------------------
+    # Run all models
+    # ------------------------------------------------------------------
     rows = []
     for iv, med, dv, series in models:
         row = _run_simple_mediation(df, iv, med, dv, series)
@@ -768,14 +794,13 @@ def run_sheet_f(df: pd.DataFrame) -> dict:
             rows.append(row)
 
     if not rows:
-        return {
-            "recap": pd.DataFrame(),
-            "full":  pd.DataFrame(),
-        }
+        return {"recap": pd.DataFrame(), "full": pd.DataFrame()}
 
     full = pd.DataFrame(rows)
 
-    # FDR correction
+    # ------------------------------------------------------------------
+    # FDR correction on indirect effects
+    # ------------------------------------------------------------------
     p_vals = []
     for _, r in full.iterrows():
         ci_low  = r.get("CI_low",  np.nan)
@@ -787,8 +812,11 @@ def run_sheet_f(df: pd.DataFrame) -> dict:
         else:
             p_vals.append(np.nan)
 
-    valid_mask = [not (isinstance(p, float) and np.isnan(p)) for p in p_vals]
-    valid_ps   = [p for p, m in zip(p_vals, valid_mask) if m]
+    valid_mask = [
+        not (isinstance(p, float) and np.isnan(p))
+        for p in p_vals
+    ]
+    valid_ps = [p for p, m in zip(p_vals, valid_mask) if m]
 
     if valid_ps:
         corrected      = _fdr_correct(valid_ps)
@@ -801,6 +829,14 @@ def run_sheet_f(df: pd.DataFrame) -> dict:
         full["p_fdr"] = np.nan
 
     full["Sig."] = full["p_fdr"].apply(_sig_label)
+
+    # ------------------------------------------------------------------
+    # Add Series label for readability
+    # ------------------------------------------------------------------
+    full["Series_label"] = full["Series"].map({
+        "1": "Series 1 — Tone as IV",
+        "2": "Series 2 — AI Perceptions as IV",
+    })
 
     recap = _make_recap(full)
     log.info(f"Sheet F: {len(full)} models completed.")
