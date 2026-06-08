@@ -984,21 +984,38 @@ def run_sheet_i(df: pd.DataFrame) -> dict:
     })
 
     # ------------------------------------------------------------------
-    # ANCOVA
+    # Recode gender for analyses
+    # Non-binary (n=1) and Prefer not to say merged into 'Other'
+    # for interaction tests only — original gender kept for descriptives
+    # and ANCOVA covariate
     # ------------------------------------------------------------------
-    main_dvs = [
+    df_analysis = df.copy()
+    if "gender" in df_analysis.columns:
+        df_analysis["gender_grouped"] = df_analysis["gender"].replace({
+            "Non-binary":        "Other",
+            "Prefer not to say": "Other",
+        })
+    else:
+        df_analysis["gender_grouped"] = np.nan
+
+    # ------------------------------------------------------------------
+    # ANCOVA — tone effect controlling for demographics
+    # Uses original gender (4 categories) as covariate
+    # ------------------------------------------------------------------
+    main_dvs   = [
         "composite", "engagement_score", "emotions_mean",
         "quantity_mean", "quality_mean",
         "E1","E2","E3","E4","E5","E6",
         "PM_score","Comp_score","MP_score",
     ]
-    covariates = [c for c in ["age","gender","language"] if c in df.columns]
+    covariates = [c for c in ["age","gender","language"]
+                  if c in df_analysis.columns]
 
     ancova_rows = []
     for dv in main_dvs:
-        if not _col_has_data(df, dv):
+        if not _col_has_data(df_analysis, dv):
             continue
-        clean = df[[dv, "tone"] + covariates].dropna()
+        clean = df_analysis[[dv, "tone"] + covariates].dropna()
         if len(clean) < 20:
             continue
         try:
@@ -1021,29 +1038,43 @@ def run_sheet_i(df: pd.DataFrame) -> dict:
             log.warning(f"ANCOVA {dv}: {e}")
 
     # ------------------------------------------------------------------
-    # Interactions
+    # Interactions — tone × language and tone × gender_grouped
+    # Uses gender_grouped (Male/Female/Other) for interactions
+    # Note: 'Other' category has small n — interpret with caution
     # ------------------------------------------------------------------
     inter_rows = []
-    for demo_var in ["language", "gender"]:
-        if demo_var not in df.columns:
-            continue
+    interaction_vars = []
+
+    if "language" in df_analysis.columns:
+        interaction_vars.append(("language", "tone * language"))
+    if "gender_grouped" in df_analysis.columns:
+        interaction_vars.append(("gender_grouped", "tone * gender_grouped"))
+
+    for demo_var, interaction_term in interaction_vars:
         for dv in ["composite","engagement_score","E3","E4","E5","E6",
                    "PM_score","Comp_score","MP_score","emotions_mean"]:
-            if not _col_has_data(df, dv):
+            if not _col_has_data(df_analysis, dv):
                 continue
-            clean = df[[dv, "tone", demo_var]].dropna()
+            clean = df_analysis[[dv, "tone", demo_var]].dropna()
             if len(clean) < 20:
                 continue
             try:
-                model   = ols(f"{dv} ~ tone * {demo_var}", data=clean).fit()
+                model   = ols(
+                    f"{dv} ~ {interaction_term}",
+                    data=clean
+                ).fit()
                 aov     = anova_lm(model, typ=2)
                 int_key = [k for k in aov.index if ":" in k]
                 if not int_key:
                     continue
                 f_val = aov.loc[int_key[0], "F"]
                 p_val = aov.loc[int_key[0], "PR(>F)"]
+                note  = (
+                    " (Other n=5 — interpret with caution)"
+                    if demo_var == "gender_grouped" else ""
+                )
                 inter_rows.append({
-                    "Interaction":  f"tone × {demo_var}",
+                    "Interaction":  f"tone × {demo_var}{note}",
                     "DV":           dv,
                     "N":            len(clean),
                     "F":            round(f_val, 3),
@@ -1051,7 +1082,9 @@ def run_sheet_i(df: pd.DataFrame) -> dict:
                     "Sig.":         _sig_label(p_val),
                 })
             except Exception as e:
-                log.warning(f"Interaction {demo_var} × tone → {dv}: {e}")
+                log.warning(
+                    f"Interaction {demo_var} × tone → {dv}: {e}"
+                )
 
     descriptives = pd.DataFrame(desc_rows)
     ancova       = pd.DataFrame(ancova_rows)
