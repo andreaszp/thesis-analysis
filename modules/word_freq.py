@@ -230,23 +230,12 @@ def _tfidf_analysis(texts: list, top_n: int = 30) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 def run_word_freq(df: pd.DataFrame) -> dict:
     """
-    Run word frequency and TF-IDF analyses on conversation transcripts.
+    Run word frequency and TF-IDF analyses.
 
-    Produces 4 sections:
-        1. Participant messages — Friendly condition
-        2. Participant messages — Professional condition
-        3. Chatbot messages — Friendly condition
-        4. Chatbot messages — Professional condition
-
-    Each section contains:
-        - Word frequency table (top 50)
-        - TF-IDF table (top 30)
-
-    Args:
-        df: DataFrame with columns: transcript, tone
-
-    Returns:
-        Dict of DataFrames keyed by section name.
+    Returns dict with:
+        'freq_table'  — combined frequency table (all 4 conditions side by side)
+        'tfidf_table' — combined Delta TF-IDF table
+        'wordcloud_paths' — list of PNG file paths (generated separately)
     """
     required = ["transcript", "tone"]
     missing  = [c for c in required if c not in df.columns]
@@ -254,50 +243,217 @@ def run_word_freq(df: pd.DataFrame) -> dict:
         log.error(f"Sheet H: missing columns {missing}")
         return {}
 
-    results = {}
+    # Extract texts per condition and speaker
+    sections = {
+        "participant_friendly": (df[df["tone"]==1], "Participant"),
+        "participant_pro":      (df[df["tone"]==0], "Participant"),
+        "chatbot_friendly":     (df[df["tone"]==1], "Chatbot"),
+        "chatbot_pro":          (df[df["tone"]==0], "Chatbot"),
+    }
 
-    sections = [
-        ("participant_friendly", "Participant", 1, "Friendly"),
-        ("participant_pro",      "Participant", 0, "Professional"),
-        ("chatbot_friendly",     "Chatbot",     1, "Friendly"),
-        ("chatbot_pro",          "Chatbot",     0, "Professional"),
-    ]
-
-    for key, speaker, tone_val, tone_label in sections:
-        df_cond = df[df["tone"] == tone_val].copy()
-
-        if len(df_cond) == 0:
-            log.warning(f"Sheet H: no data for {tone_label} condition — skipped.")
-            continue
-
-        # Extract messages for this speaker
-        texts = [
+    texts = {}
+    for key, (df_cond, speaker) in sections.items():
+        raw = [
             _extract_messages(t, speaker)
             for t in df_cond["transcript"].tolist()
         ]
-        texts = [t for t in texts if t.strip()]
+        texts[key] = [t for t in raw if t.strip()]
 
-        if not texts:
-            log.warning(f"Sheet H: no {speaker} messages in {tone_label} — skipped.")
+    # ------------------------------------------------------------------
+    # Table 1 — Word frequencies side by side
+    # Columns: Rank | Word FL21 Part | Freq | Word FL22 Part | Freq |
+    #          Word Chatbot FL21 | Freq | Word Chatbot FL22 | Freq
+    # ------------------------------------------------------------------
+    freq_data = {}
+    for key, text_list in texts.items():
+        freq_data[key] = _word_frequencies(text_list, top_n=50)
+
+    max_rows = max(len(v) for v in freq_data.values()) if freq_data else 0
+    freq_rows = []
+    for i in range(max_rows):
+        row = {"Rank": i + 1}
+        for key, label in [
+            ("participant_friendly", "Word FL_21 (Participant)"),
+            ("participant_pro",      "Word FL_22 (Participant)"),
+            ("chatbot_friendly",     "Word Chatbot FL_21"),
+            ("chatbot_pro",          "Word Chatbot FL_22"),
+        ]:
+            df_freq = freq_data.get(key, pd.DataFrame())
+            if i < len(df_freq):
+                row[label]            = df_freq.iloc[i]["word"]
+                row[f"Freq_{label}"]  = int(df_freq.iloc[i]["frequency"])
+            else:
+                row[label]           = ""
+                row[f"Freq_{label}"] = ""
+        freq_rows.append(row)
+
+    freq_table = pd.DataFrame(freq_rows)
+    # Reorder columns
+    freq_cols = ["Rank"]
+    for label in [
+        "Word FL_21 (Participant)", "Word FL_22 (Participant)",
+        "Word Chatbot FL_21",       "Word Chatbot FL_22",
+    ]:
+        freq_cols += [label, f"Freq_{label}"]
+    freq_table = freq_table[
+        [c for c in freq_cols if c in freq_table.columns]
+    ]
+
+    # ------------------------------------------------------------------
+    # Table 2 — Delta TF-IDF
+    # Delta = TF-IDF score friendly - TF-IDF score professional
+    # Positive = more distinctive in friendly
+    # Negative = more distinctive in professional
+    # ------------------------------------------------------------------
+    tfidf_data = {}
+    for key, text_list in texts.items():
+        tfidf_data[key] = _tfidf_analysis(text_list, top_n=50)
+
+    def _compute_delta(df_friendly: pd.DataFrame,
+                       df_pro: pd.DataFrame) -> pd.DataFrame:
+        """Compute Delta TF-IDF = friendly score - pro score."""
+        if df_friendly.empty or df_pro.empty:
+            return pd.DataFrame()
+
+        merged = pd.merge(
+            df_friendly[["term","tfidf_mean"]].rename(
+                columns={"tfidf_mean": "tfidf_friendly"}
+            ),
+            df_pro[["term","tfidf_mean"]].rename(
+                columns={"tfidf_mean": "tfidf_pro"}
+            ),
+            on="term", how="outer"
+        ).fillna(0)
+
+        merged["delta"] = (
+            merged["tfidf_friendly"] - merged["tfidf_pro"]
+        ).round(4)
+        merged = merged.sort_values("delta", ascending=False)
+        return merged
+
+    delta_part = _compute_delta(
+        tfidf_data.get("participant_friendly", pd.DataFrame()),
+        tfidf_data.get("participant_pro",      pd.DataFrame()),
+    )
+    delta_chat = _compute_delta(
+        tfidf_data.get("chatbot_friendly", pd.DataFrame()),
+        tfidf_data.get("chatbot_pro",      pd.DataFrame()),
+    )
+
+    # Build side-by-side delta table
+    max_delta = max(
+        len(delta_part) if not delta_part.empty else 0,
+        len(delta_chat) if not delta_chat.empty else 0,
+    )
+    tfidf_rows = []
+    for i in range(min(max_delta, 30)):
+        row = {"Rank": i + 1}
+        if i < len(delta_part):
+            r = delta_part.iloc[i]
+            row["Distinctive FL_21 (Participant)"] = r["term"]
+            row["Delta TF-IDF (Participant)"]      = r["delta"]
+        else:
+            row["Distinctive FL_21 (Participant)"] = ""
+            row["Delta TF-IDF (Participant)"]      = ""
+        if i < len(delta_chat):
+            r = delta_chat.iloc[i]
+            row["Distinctive FL_21 (Chatbot)"] = r["term"]
+            row["Delta TF-IDF (Chatbot)"]      = r["delta"]
+        else:
+            row["Distinctive FL_21 (Chatbot)"] = ""
+            row["Delta TF-IDF (Chatbot)"]      = ""
+        tfidf_rows.append(row)
+
+    tfidf_table = pd.DataFrame(tfidf_rows)
+
+    # ------------------------------------------------------------------
+    # Wordclouds — generate PNG files
+    # ------------------------------------------------------------------
+    wordcloud_paths = _generate_wordclouds(texts)
+
+    log.info(
+        f"Sheet H: freq table {len(freq_table)} rows, "
+        f"tfidf table {len(tfidf_table)} rows, "
+        f"{len(wordcloud_paths)} wordclouds generated."
+    )
+
+    return {
+        "freq_table":      freq_table,
+        "tfidf_table":     tfidf_table,
+        "wordcloud_paths": wordcloud_paths,
+    }
+
+
+def _generate_wordclouds(texts: dict) -> list:
+    """
+    Generate wordcloud PNG files for each condition/speaker.
+    Returns list of file paths.
+    """
+    try:
+        from wordcloud import WordCloud
+        import matplotlib.pyplot as plt
+    except ImportError:
+        log.warning(
+            "wordcloud library not installed. "
+            "Run: pip install wordcloud"
+        )
+        return []
+
+    os.makedirs("outputs/wordclouds", exist_ok=True)
+
+    colors = {
+        "participant_friendly": "#1A5276",
+        "participant_pro":      "#784212",
+        "chatbot_friendly":     "#1D6A39",
+        "chatbot_pro":          "#4A235A",
+    }
+
+    titles = {
+        "participant_friendly": "Participant Messages — Friendly",
+        "participant_pro":      "Participant Messages — Professional",
+        "chatbot_friendly":     "Chatbot Messages — Friendly",
+        "chatbot_pro":          "Chatbot Messages — Professional",
+    }
+
+    paths = []
+    for key, text_list in texts.items():
+        if not text_list:
             continue
 
-        log.info(
-            f"Sheet H: {speaker} / {tone_label} — "
-            f"{len(texts)} conversations"
-        )
+        # Combine all texts and tokenize
+        combined = " ".join(text_list)
+        tokens   = _tokenize(combined)
+        if not tokens:
+            continue
 
-        # Word frequencies
-        freq_df = _word_frequencies(texts)
-        freq_df["speaker"]   = speaker
-        freq_df["condition"] = tone_label
+        token_text = " ".join(tokens)
 
-        # TF-IDF
-        tfidf_df = _tfidf_analysis(texts)
-        tfidf_df["speaker"]   = speaker
-        tfidf_df["condition"] = tone_label
+        try:
+            wc = WordCloud(
+                width=800, height=400,
+                background_color="white",
+                colormap="Blues",
+                max_words=100,
+                stopwords=ALL_STOPWORDS,
+                collocations=False,
+            ).generate(token_text)
 
-        results[f"{key}_freq"]  = freq_df
-        results[f"{key}_tfidf"] = tfidf_df
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.imshow(wc, interpolation="bilinear")
+            ax.axis("off")
+            ax.set_title(
+                titles.get(key, key),
+                fontsize=14, fontweight="bold",
+                pad=15
+            )
 
-    log.info(f"Sheet H: {len(results)} sub-tables generated.")
-    return results
+            path = f"outputs/wordclouds/{key}.png"
+            plt.savefig(path, dpi=150, bbox_inches="tight")
+            plt.close()
+            paths.append(path)
+            log.info(f"Wordcloud saved: {path}")
+
+        except Exception as e:
+            log.warning(f"Wordcloud {key}: {e}")
+
+    return paths
