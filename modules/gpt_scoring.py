@@ -237,70 +237,136 @@ def _score_conversation(
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
-def run_gpt_scoring(df: pd.DataFrame) -> pd.DataFrame:
+def run_gpt_scoring(
+    df: pd.DataFrame,
+    cache_path: str = None,
+) -> pd.DataFrame:
     """
-    Score all conversation transcripts in the DataFrame.
+    Score all conversation transcripts using GPT-4o.
+    
+    Implements a per-participant cache saved to disk after each scoring.
+    If interrupted, relaunching will skip already-scored participants
+    and continue from where it stopped — no double billing.
 
-    Requires:
-        - df must have columns: response_id, transcript, tone
-        - OPENAI_API_KEY must be set in the environment
+    Args:
+        df:         DataFrame with response_id, transcript, tone
+        cache_path: Path to JSON cache file (on Google Drive ideally).
+                    Defaults to config cache path if set, else local.
 
     Returns:
-        DataFrame formatted for Sheet G with columns:
-            response_id, tone_label, num_turns,
-            quantity_run1/2/3, quantity_mean, quantity_sd,
-            quality_run1/2/3, quality_mean, quality_sd,
-            emotions_run1/2/3, emotions_mean, emotions_sd,
-            composite,
-            quantity_justification, quality_justification,
-            emotions_justification, key_verbatim
+        DataFrame formatted for Sheet G.
     """
     if not config.OPENAI_API_KEY:
         raise ValueError(
             "OPENAI_API_KEY is not set. "
-            "Cannot run GPT-4o scoring. "
             "Use --skip-gpt to bypass this step."
         )
 
-    # Validate required columns
     required = ["response_id", "transcript", "tone"]
-    missing = [c for c in required if c not in df.columns]
+    missing  = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"GPT scoring: missing columns {missing}")
 
-    # Load prompt
-    prompt = _load_prompt()
+    # ------------------------------------------------------------------
+    # Cache setup
+    # ------------------------------------------------------------------
+    import json
 
-    # Initialise OpenAI client
+    if cache_path is None:
+        cache_path = getattr(
+            config, "GPT_CACHE_PATH",
+            "outputs/gpt_cache.json"
+        )
+
+    # Load existing cache
+    cache = {}
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                cache = json.load(f)
+            log.info(
+                f"GPT cache loaded: {len(cache)} participants "
+                f"already scored."
+            )
+        except Exception as e:
+            log.warning(f"Could not load cache: {e} — starting fresh.")
+            cache = {}
+
+    # ------------------------------------------------------------------
+    # Load prompt
+    # ------------------------------------------------------------------
+    prompt = _load_prompt()
     client = OpenAI(api_key=config.OPENAI_API_KEY)
 
-    # Filter out rows with empty transcripts
-    df_valid = df[df["transcript"].str.strip().astype(bool)].copy()
+    # Filter valid transcripts
+    df_valid = df[
+        df["transcript"].str.strip().astype(bool)
+    ].copy()
     n_total = len(df_valid)
+
+    # Identify who still needs scoring
+    already_done = set(cache.keys())
+    df_todo      = df_valid[
+        ~df_valid["response_id"].astype(str).isin(already_done)
+    ]
+
     log.info(
-        f"GPT-4o scoring: {n_total} conversations to score "
-        f"({config.GPT_RUNS} runs each, model={config.GPT_MODEL})."
+        f"GPT scoring: {n_total} total, "
+        f"{len(already_done)} already cached, "
+        f"{len(df_todo)} to score."
     )
 
-    # Score all conversations
-    rows = []
-    for idx, (_, row) in enumerate(df_valid.iterrows(), start=1):
+    if len(df_todo) == 0:
+        log.info("All participants already scored — loading from cache.")
+    
+    # ------------------------------------------------------------------
+    # Score remaining participants
+    # ------------------------------------------------------------------
+    for idx, (_, row) in enumerate(df_todo.iterrows(), start=1):
         response_id = str(row["response_id"])
         transcript  = str(row["transcript"])
         tone_label  = config.TONE_LABELS.get(int(row["tone"]), "Unknown")
-        num_turns   = int(row["num_turns"]) if pd.notna(row.get("num_turns")) else None
+        num_turns   = int(row["num_turns"]) \
+                      if pd.notna(row.get("num_turns")) else None
 
-        log.info(f"Scoring [{idx}/{n_total}] {response_id} ({tone_label})")
+        log.info(
+            f"Scoring [{idx}/{len(df_todo)}] "
+            f"{response_id} ({tone_label})"
+        )
 
-        scored = _score_conversation(client, prompt, transcript, response_id)
+        scored = _score_conversation(
+            client, prompt, transcript, response_id
+        )
         scored["tone_label"] = tone_label
         scored["num_turns"]  = num_turns
-        rows.append(scored)
 
-    # Build Sheet G DataFrame
+        # Save to cache immediately after each participant
+        cache[response_id] = scored
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        try:
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(cache, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            log.warning(
+                f"Could not save cache after {response_id}: {e}"
+            )
+
+    # ------------------------------------------------------------------
+    # Build Sheet G from cache (all participants)
+    # ------------------------------------------------------------------
+    rows = []
+    for response_id in df_valid["response_id"].astype(str):
+        if response_id in cache:
+            rows.append(cache[response_id])
+        else:
+            log.warning(
+                f"Participant {response_id} not in cache "
+                f"— skipped."
+            )
+
     sheet_g = pd.DataFrame(rows)
 
-    # Reorder columns to match Sheet G specification
+    # Reorder columns
     col_order = [
         "response_id", "tone_label", "num_turns",
         "quantity_run1", "quantity_run2", "quantity_run3",
@@ -318,22 +384,21 @@ def run_gpt_scoring(df: pd.DataFrame) -> pd.DataFrame:
         "emotions_explanation",
         "key_verbatim",
     ]
-    sheet_g = sheet_g[[c for c in col_order if c in sheet_g.columns]]
+    sheet_g = sheet_g[
+        [c for c in col_order if c in sheet_g.columns]
+    ]
 
-    # Merge scoring results back into main df
-    # (adds quantity_run1/2/3, quality_run1/2/3, emotions_run1/2/3,
-    #  quantity_mean, quality_mean, emotions_mean, composite)
+    # Merge scores back into main df
     score_cols = [
         "response_id",
-        "quantity_run1", "quantity_run2", "quantity_run3", "quantity_mean",
-        "quality_run1",  "quality_run2",  "quality_run3",  "quality_mean",
-        "emotions_run1", "emotions_run2", "emotions_run3", "emotions_mean",
+        "quantity_run1","quantity_run2","quantity_run3","quantity_mean",
+        "quality_run1", "quality_run2", "quality_run3", "quality_mean",
+        "emotions_run1","emotions_run2","emotions_run3","emotions_mean",
         "composite",
     ]
     merge_cols = [c for c in score_cols if c in sheet_g.columns]
     df_scores  = sheet_g[merge_cols]
 
-    # Update main df in-place via index merge
     for col in merge_cols:
         if col == "response_id":
             continue
@@ -345,9 +410,8 @@ def run_gpt_scoring(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     log.info(
-        f"GPT scoring complete. "
-        f"Mean composite = {sheet_g['composite'].mean():.3f}, "
-        f"SD = {sheet_g['composite'].std():.3f}"
+        f"GPT scoring complete: {len(sheet_g)} participants scored. "
+        f"Cache saved to: {cache_path}"
     )
 
     return sheet_g
