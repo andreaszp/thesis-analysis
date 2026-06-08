@@ -78,8 +78,10 @@ def load_and_clean(data_path: str) -> pd.DataFrame:
         log.warning(f"Unknown columns kept as-is: {unknown}")
 
     # ------------------------------------------------------------------
+  # ------------------------------------------------------------------
     # 3. Decode tone condition
     # FL_13_DO → tone (1=friendly, 0=professional)
+    # Rows with unrecognised tone values (NaN) are dropped with a warning.
     # ------------------------------------------------------------------
     if "tone_raw" not in df.columns:
         log.error("Column 'tone_raw' (FL_13_DO) not found.")
@@ -89,67 +91,79 @@ def load_and_clean(data_path: str) -> pd.DataFrame:
     n_missing_tone = df["tone"].isna().sum()
     if n_missing_tone > 0:
         log.warning(
-            f"{n_missing_tone} rows have unrecognised tone value — will be dropped."
+            f"{n_missing_tone} rows have unrecognised tone value "
+            f"(not FL_21 or FL_22) — dropped."
         )
-    df = df.dropna(subset=["tone"])
+        df = df.dropna(subset=["tone"])
+
     df["tone"] = df["tone"].astype(int)
     log.info(
         f"Tone decoded — Friendly (1): {(df['tone']==1).sum()}, "
         f"Professional (0): {(df['tone']==0).sum()}"
     )
 
+   
     # ------------------------------------------------------------------
     # 4. Filter ineligible participants
-    # eligible == "1" → confirmed streaming platform user
+    # Keep only participants who confirmed using a streaming platform
+    # (User ? == 1)
     # ------------------------------------------------------------------
     if "eligible" in df.columns:
         before = len(df)
-        df = df[df["eligible"].astype(str).str.strip() == "1"].copy()
+        df     = df[df["eligible"].astype(str).str.strip() == "1"].copy()
         dropped = before - len(df)
         if dropped > 0:
-            log.info(f"Dropped {dropped} ineligible participant(s)")
+            log.info(
+                f"Dropped {dropped} ineligible participant(s) "
+                f"(User ? != 1)"
+            )
 
     # ------------------------------------------------------------------
-    # 5. Filter incomplete responses + no chatbot interaction
-    #   a) Progress = 100
-    #   b) Finished = 1
-    #   c) At least 1 message sent to the chatbot
+    # 5. Filter incomplete responses and no chatbot interaction
+    #
+    # Criteria kept:
+    #   a) Progress = 100 — participant completed the full survey
+    #   b) At least 1 message sent to the chatbot
+    #
+    # Criteria removed:
+    #   - Finished flag: may be recorded at the wrong moment in
+    #     Qualtrics and is redundant with Progress = 100
+    #   - Tone condition check: already handled in Step 3
     # ------------------------------------------------------------------
 
     # a) Progress = 100
     if "Progress" in df.columns:
-        before = len(df)
-        df = df[df["Progress"].astype(str).str.strip() == "100"].copy()
+        before  = len(df)
+        df      = df[
+            df["Progress"].astype(str).str.strip() == "100"
+        ].copy()
         dropped = before - len(df)
         if dropped > 0:
-            log.info(f"Dropped {dropped} participant(s) with Progress != 100")
+            log.info(
+                f"Dropped {dropped} participant(s) with Progress != 100"
+            )
 
-    # b) Finished = 1
-    if "finished" in df.columns:
-        before = len(df)
-        df = df[df["finished"].astype(str).str.strip() == "1"].copy()
-        dropped = before - len(df)
-        if dropped > 0:
-            log.info(f"Dropped {dropped} incomplete response(s)")
-
-    # c) At least 1 message sent to the chatbot
+    # b) At least 1 message sent to the chatbot
     msg_cols_present = [c for c in config.MSG_COLS if c in df.columns]
     if msg_cols_present:
-        before = len(df)
+        before      = len(df)
         has_message = df[msg_cols_present].apply(
             lambda row: any(
                 str(v).strip() not in ("", "nan", "None")
                 for v in row
             ), axis=1
         )
-        df = df[has_message].copy()
+        df      = df[has_message].copy()
         dropped = before - len(df)
         if dropped > 0:
             log.info(
-                f"Dropped {dropped} participant(s) with no chatbot message"
+                f"Dropped {dropped} participant(s) with no chatbot "
+                f"message (no JavaScript tracking data)"
             )
     else:
-        log.warning("No msg columns found — cannot filter empty conversations")
+        log.warning(
+            "No msg columns found — cannot filter empty conversations"
+        )
 
     # ------------------------------------------------------------------
     # 6. Cast Likert scale columns to numeric
