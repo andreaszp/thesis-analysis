@@ -440,7 +440,7 @@ def run_sheet_d(df: pd.DataFrame) -> dict:
         _get_predictors_for_scale("MA") +
         _get_predictors_for_scale("MP")
     )
-    dvs    = ["composite", "engagement_score"]
+    dvs    = ["composite", "engagement_score", "emotions_mean"]
     blocks = [
         ["tone"],
         ["tone"] + ai_preds,
