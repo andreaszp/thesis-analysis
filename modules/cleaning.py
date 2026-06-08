@@ -108,14 +108,21 @@ def load_and_clean(data_path: str) -> pd.DataFrame:
     # Keep only participants who confirmed using a streaming platform
     # (User ? == 1)
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # 4. Filter ineligible participants
+    # Keep only participants who confirmed using a streaming platform
+    # User ? == 1 (Yes) / User ? == 2 (No)
+    # ------------------------------------------------------------------
     if "eligible" in df.columns:
         before = len(df)
-        df     = df[df["eligible"].astype(str).str.strip() == "1"].copy()
+        df     = df[
+            df["eligible"].astype(str).str.strip() == "1"
+        ].copy()
         dropped = before - len(df)
         if dropped > 0:
             log.info(
                 f"Dropped {dropped} ineligible participant(s) "
-                f"(User ? != 1)"
+                f"(User ? != 1 — non-users of streaming platforms)"
             )
 
     # ------------------------------------------------------------------
@@ -210,7 +217,21 @@ def load_and_clean(data_path: str) -> pd.DataFrame:
             .astype(str).str.strip().str.lower()
             .map({"true": True, "1": True, "false": False, "0": False})
         )
-
+    # ------------------------------------------------------------------
+    # 7b. Exclude participants under 18
+    # The study consent form did not include age restrictions or parental
+    # consent procedures. Participants under 18 are therefore excluded.
+    # ------------------------------------------------------------------
+    if "age" in df.columns:
+        before = len(df)
+        df     = df[
+            (df["age"] >= 18) | (df["age"].isna())
+        ].copy()
+        dropped = before - len(df)
+        if dropped > 0:
+            log.info(
+                f"Dropped {dropped} participant(s) under 18 years of age"
+            )
     # ------------------------------------------------------------------
     # 8. Decode gender (1=Male, 2=Female, 3=Non-binary, 4=Prefer not to say)
     # ------------------------------------------------------------------
