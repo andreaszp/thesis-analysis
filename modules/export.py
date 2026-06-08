@@ -682,14 +682,17 @@ def _write_sheet_h(ws, data: dict) -> None:
 def _write_sheet_i(ws, data: dict) -> None:
     """Write Demographics & Robustness sheet."""
     current_row = 1
-    n_cols      = 8
+    n_cols      = 10
 
     sections = [
-        ("DESCRIPTIVE STATISTICS",            "descriptives", False),
-        ("ANCOVA — Recap (significant only)",  "ancova_recap", True),
-        ("ANCOVA — Full results",              "ancova",       True),
-        ("INTERACTIONS — Recap",               "inter_recap",  True),
-        ("INTERACTIONS — Full results",        "interactions", True),
+        ("DESCRIPTIVE STATISTICS",                    "descriptives",  False),
+        ("RANDOMISATION CHECKS",                      "randomisation", False),
+        ("EXCLUSION SUMMARY",                         "exclusions",    False),
+        ("NORMALITY CHECKS (Shapiro-Wilk)",           "normality",     False),
+        ("ANCOVA — Recap (significant only)",         "ancova_recap",  True),
+        ("ANCOVA — Full results",                     "ancova",        False),
+        ("INTERACTIONS — Recap (significant only)",   "inter_recap",   True),
+        ("INTERACTIONS — Full results",               "interactions",  False),
     ]
 
     for title, key, primary in sections:
