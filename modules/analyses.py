@@ -922,34 +922,47 @@ def run_sheet_f(df: pd.DataFrame) -> dict:
     # ------------------------------------------------------------------
     # FDR correction on indirect effects
     # ------------------------------------------------------------------
-    p_vals = []
-    for _, r in full.iterrows():
-        ci_low  = r.get("CI_low",  np.nan)
-        ci_high = r.get("CI_high", np.nan)
-        if pd.notna(ci_low) and pd.notna(ci_high):
-            p_vals.append(
-                0.01 if (ci_low > 0 or ci_high < 0) else 0.50
-            )
-        else:
-            p_vals.append(np.nan)
+    # ------------------------------------------------------------------
+    # Significance based on CI excluding zero
+    # Standard criterion for bootstrapped mediation (Preacher & Hayes 2008)
+    # No FDR correction applied — bootstrap CI is the test itself
+    # ------------------------------------------------------------------
+    def _mediation_sig(row):
+        ci_low  = row.get("CI_low",  float("nan"))
+        ci_high = row.get("CI_high", float("nan"))
+        try:
+            ci_low  = float(ci_low)
+            ci_high = float(ci_high)
+            if ci_low > 0 or ci_high < 0:
+                return "*"
+            return "ns"
+        except (ValueError, TypeError):
+            return "ns"
 
-    valid_mask = [
-        not (isinstance(p, float) and np.isnan(p))
-        for p in p_vals
-    ]
-    valid_ps = [p for p, m in zip(p_vals, valid_mask) if m]
+    full["Sig."] = full.apply(_mediation_sig, axis=1)
 
-    if valid_ps:
-        corrected      = _fdr_correct(valid_ps)
-        corrected_iter = iter(corrected)
-        full["p_fdr"]  = [
-            round(next(corrected_iter), 4) if m else np.nan
-            for m in valid_mask
-        ]
-    else:
-        full["p_fdr"] = np.nan
+    # Update mediation type based on corrected significance
+    def _mediation_type(row):
+        sig      = row.get("Sig.", "ns")
+        p_cprime = row.get("p_cprime", 1.0)
+        if sig == "ns":
+            return "No mediation"
+        try:
+            if float(p_cprime) > config.ALPHA:
+                return "Full mediation"
+            else:
+                return "Partial mediation"
+        except (ValueError, TypeError):
+            return "Significant indirect effect"
 
-    full["Sig."] = full["p_fdr"].apply(_sig_label)
+    full["Mediation_type"] = full.apply(_mediation_type, axis=1)
+
+    recap = _make_recap(full)
+    log.info(
+        f"Sheet F: {len(full)} models, "
+        f"{(full['Sig.'] == '*').sum()} significant (CI excludes 0)."
+    )
+    return {"recap": recap, "full": full}
 
     # ------------------------------------------------------------------
     # Add Series label for readability
