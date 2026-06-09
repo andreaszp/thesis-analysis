@@ -3,14 +3,13 @@ export.py
 ---------
 Final step: write all results to a single formatted Excel file.
 
-Color scheme:
-    Headers:        deep navy
-    Blocks:         teal / burnt orange / sage green / violet / dark grey
-    p-values:       grey (ns) / orange (p<0.05) / green (p<0.01) /
-                    dark green (p<0.001)
-    Mediation type: dark green (full) / light green (partial) / none (no med)
-    Multicollinearity: orange if r > 0.80
-    Rows:           white / very light blue alternating
+Color scheme (unified v2):
+    Section titles:  dark navy (#1B2A4A) primary / dark grey (#2C3E50) secondary
+    Column headers:  medium blue (#2980B9)
+    Rows:            white / very light grey (#F2F3F4) alternating
+    p-values:        grey (ns) / orange (p<.05) / green (p<.01) / dark green (p<.001)
+    Mediation type:  dark green (full) / light green (partial)
+    Section titles:  merged across full table width
 """
 
 import logging
@@ -25,109 +24,124 @@ import config
 
 log = logging.getLogger(__name__)
 
-
 # ---------------------------------------------------------------------------
-# Fills
+# Color palette
 # ---------------------------------------------------------------------------
-def _fill(hex_color: str) -> PatternFill:
-    return PatternFill(
-        start_color=hex_color,
-        end_color=hex_color,
-        fill_type="solid"
-    )
+C_TITLE    = '1B2A4A'   # dark navy   — primary section titles
+C_SUBTITLE = '2C3E50'   # dark grey   — secondary section titles
+C_HEADER   = '2980B9'   # medium blue — column headers
+C_ALT      = 'F2F3F4'   # light grey  — alternating rows
+C_WHITE    = 'FFFFFF'
+C_SIG_001  = '1E8449'   # dark green  — p<.001
+C_SIG_01   = '27AE60'   # green       — p<.01
+C_SIG_05   = 'F39C12'   # orange      — p<.05
+C_NS       = 'E8E8E8'   # light grey  — ns
+C_MED_FULL = '1E8449'   # dark green  — full mediation
+C_MED_PART = 'A9DFBF'   # light green — partial mediation
+C_MULTICOL = 'F39C12'   # orange      — multicollinearity warning
 
-SECTION_PRIMARY   = _fill("1B4F72")
-SECTION_SECONDARY = _fill("2E86C1")
-ROW_WHITE         = _fill("FFFFFF")
-ROW_ALT           = _fill("EBF5FB")
-
-P_FILLS = {
-    "ns":   _fill("E8E8E8"),
-    "p05":  _fill("F39C12"),
-    "p01":  _fill("27AE60"),
-    "p001": _fill("1E8449"),
+# Block colors for Sheet K (Cleaned Data)
+BLOCK_COLORS = {
+    'ai':          '1A5276',
+    'eval':        '784212',
+    'quality':     '1D6A39',
+    'engage':      '4A235A',
+    'demo':        '424949',
+    'personality': '7B241C',
+    'tone':        '1F618D',
+    'default':     '1B4F72',
 }
 
-MED_FILLS = {
-    "Full mediation":    _fill("1E8449"),   # dark green
-    "Partial mediation": _fill("A9DFBF"),   # light green
+# Category colors for Sheet L (Variable Definitions)
+CAT_COLORS = {
+    'Experimental Design':       '1F618D',
+    'Chatbot Evaluation':        '784212',
+    'Perceived Manipulation':    '1A5276',
+    'Competence to Judge':       '1A5276',
+    'Moral Agency':              '1A5276',
+    'Moral Patiency':            '1A5276',
+    'Perceived Autonomy':        '1A5276',
+    'Perceived Personality':     '7B241C',
+    'Feedback Quality (GPT-4o)': '1D6A39',
+    'Engagement':                '4A235A',
+    'Demographics':              '424949',
 }
-
-MULTICOL_FILL = _fill("F39C12")   # orange
-
-THIN_BORDER = Border(bottom=Side(style="thin", color="CCCCCC"))
-
 
 # ---------------------------------------------------------------------------
 # Labels
 # ---------------------------------------------------------------------------
 PREDICTOR_LABELS: dict = {
-    "tone":             "Chatbot Tone (0=Pro / 1=Friendly)",
-    "PM_score":         "Perceived Manipulation (composite)",
-    "PM1":              "PM — threat to freedom",
-    "PM2":              "PM — decision override",
-    "PM3":              "PM — manipulation attempt",
-    "PM4":              "PM — pressure felt",
-    "Comp_score":       "Competence (composite)",
-    "Comp1":            "Competence — skills",
-    "Comp2":            "Competence — morality",
-    "Ind_score":        "Autonomy (composite)",
-    "Ind1":             "Autonomy — AI plans & goals",
-    "Ind2":             "Autonomy — AI self-control",
-    "MA_score":         "Moral Agency (composite)",
-    "MA1":              "Moral Agency — moral gravity AI→human",
-    "MA2":              "Moral Agency — AI moral responsibility",
-    "MP_score":         "Moral Patiency (composite)",
-    "MP1":              "Moral Patiency — moral gravity human→AI",
-    "MP2":              "Moral Patiency — AI right to consideration",
-    "E1":               "Required effort",
-    "E2":               "Engagement felt",
-    "E3":               "Chatbot appreciation",
-    "E4":               "Conversation utility",
-    "E5":               "Reuse intention",
-    "E6":               "Chatbot preference",
-    "composite":        "Feedback composite score",
-    "engagement_score": "Engagement score (behavioural)",
-    "emotions_mean":    "Emotional expression (mean)",
-    "quantity_mean":    "Feedback quantity (mean)",
-    "quality_mean":     "Feedback quality (mean)",
+    'tone':             'Chatbot Tone (0=Formal / 1=Casual)',
+    'PM_score':         'Perceived Manipulation (composite)',
+    'PM1':              'PM — threat to freedom',
+    'PM2':              'PM — decision override',
+    'PM3':              'PM — manipulation attempt',
+    'PM4':              'PM — pressure felt',
+    'Comp_score':       'Competence (composite)',
+    'Comp1':            'Competence — skills',
+    'Comp2':            'Competence — morality',
+    'Ind_score':        'Autonomy (composite)',
+    'Ind1':             'Autonomy — AI plans & goals',
+    'Ind2':             'Autonomy — AI self-control',
+    'MA_score':         'Moral Agency (composite)',
+    'MA1':              'Moral Agency — moral gravity AI→human',
+    'MA2':              'Moral Agency — AI moral responsibility',
+    'MP_score':         'Moral Patiency (composite)',
+    'MP1':              'Moral Patiency — moral gravity human→AI',
+    'MP2':              'Moral Patiency — AI right to consideration',
+    'E1':               'Required effort',
+    'E2':               'Engagement felt',
+    'E3':               'Chatbot appreciation',
+    'E4':               'Conversation utility',
+    'E5':               'Reuse intention',
+    'E6':               'Chatbot preference',
+    'composite':        'Feedback composite score',
+    'engagement_score': 'Engagement score (behavioural)',
+    'emotions_mean':    'Emotional expression (mean)',
+    'quantity_mean':    'Feedback quantity (mean)',
+    'quality_mean':     'Feedback quality (mean)',
 }
 
 DV_LABELS: dict = {
-    "composite":        "Feedback Composite Score",
-    "engagement_score": "Engagement Score (behavioural)",
-    "emotions_mean":    "Emotional Expression",
-    "E3":               "Chatbot Appreciation (E3)",
-    "E4":               "Conversation Utility (E4)",
-    "E5":               "Reuse Intention (E5)",
-    "E6":               "Chatbot Preference (E6)",
+    'composite':        'Feedback Composite Score',
+    'engagement_score': 'Engagement Score (behavioural)',
+    'emotions_mean':    'Emotional Expression',
+    'E3':               'Chatbot Appreciation (E3)',
+    'E4':               'Conversation Utility (E4)',
+    'E5':               'Reuse Intention (E5)',
+    'E6':               'Chatbot Preference (E6)',
 }
 
 IV_LABELS            = PREDICTOR_LABELS
 DV_LABELS_REGRESSION = {
-    "PM_score":  "Perceived Manipulation (composite)",
-    "PM1":       "PM — threat to freedom",
-    "PM2":       "PM — decision override",
-    "PM3":       "PM — manipulation attempt",
-    "PM4":       "PM — pressure felt",
-    "Comp_score":"Competence (composite)",
-    "Comp1":     "Competence — skills",
-    "Comp2":     "Competence — morality",
-    "Ind_score": "Autonomy (composite)",
-    "Ind1":      "Autonomy — AI plans & goals",
-    "Ind2":      "Autonomy — AI self-control",
-    "MA_score":  "Moral Agency (composite)",
-    "MA1":       "Moral Agency — moral gravity AI→human",
-    "MA2":       "Moral Agency — AI moral responsibility",
-    "MP_score":  "Moral Patiency (composite)",
-    "MP1":       "Moral Patiency — moral gravity human→AI",
-    "MP2":       "Moral Patiency — AI right to consideration",
+    'PM_score':  'Perceived Manipulation (composite)',
+    'PM1':       'PM — threat to freedom',
+    'PM2':       'PM — decision override',
+    'PM3':       'PM — manipulation attempt',
+    'PM4':       'PM — pressure felt',
+    'Comp_score':'Competence (composite)',
+    'Comp1':     'Competence — skills',
+    'Comp2':     'Competence — morality',
+    'Ind_score': 'Autonomy (composite)',
+    'Ind1':      'Autonomy — AI plans & goals',
+    'Ind2':      'Autonomy — AI self-control',
+    'MA_score':  'Moral Agency (composite)',
+    'MA1':       'Moral Agency — moral gravity AI→human',
+    'MA2':       'Moral Agency — AI moral responsibility',
+    'MP_score':  'Moral Patiency (composite)',
+    'MP1':       'Moral Patiency — moral gravity human→AI',
+    'MP2':       'Moral Patiency — AI right to consideration',
 }
 
+# ---------------------------------------------------------------------------
+# Core style helpers
+# ---------------------------------------------------------------------------
+def _fill(hex_color: str) -> PatternFill:
+    return PatternFill(
+        start_color=hex_color, end_color=hex_color, fill_type='solid'
+    )
 
-# ---------------------------------------------------------------------------
-# Cell helpers
-# ---------------------------------------------------------------------------
+
 def _write_value(cell, value) -> None:
     if isinstance(value, (np.integer,)):
         cell.value = int(value)
@@ -141,50 +155,13 @@ def _write_value(cell, value) -> None:
         cell.value = value if value is not None else None
 
 
-def _style_header(ws, row_num: int, n_cols: int,
-                  bg: str = "1B4F72") -> None:
-    for col in range(1, n_cols + 1):
-        cell           = ws.cell(row=row_num, column=col)
-        cell.fill      = _fill(bg)
-        cell.font      = Font(bold=True, color="FFFFFF", size=10)
-        cell.alignment = Alignment(
-            horizontal="center", vertical="center", wrap_text=True
-        )
-        cell.border = THIN_BORDER
-    ws.row_dimensions[row_num].height = 30
-
-
-def _style_data_row(ws, row_num: int, n_cols: int,
-                    alt: bool = False) -> None:
-    fill = ROW_ALT if alt else ROW_WHITE
-    for col in range(1, n_cols + 1):
-        cell           = ws.cell(row=row_num, column=col)
-        cell.fill      = fill
-        cell.font      = Font(size=10)
-        cell.alignment = Alignment(vertical="center", wrap_text=True)
-
-
-def _p_fill(p_val) -> PatternFill | None:
-    try:
-        p = float(p_val)
-        if p < 0.001: return P_FILLS["p001"]
-        if p < 0.01:  return P_FILLS["p01"]
-        if p < 0.05:  return P_FILLS["p05"]
-        return P_FILLS["ns"]
-    except (ValueError, TypeError):
-        return None
-
-
-def _autofit(ws, min_w: int = 8, max_w: int = 35) -> None:
-    """Auto-fit columns — narrower max to avoid horizontal scrolling."""
+def _autofit(ws, min_w: int = 10, max_w: int = 38) -> None:
     for col in ws.columns:
         max_len    = 0
         col_letter = get_column_letter(col[0].column)
         for cell in col:
             try:
-                val_len = len(str(cell.value or ""))
-                # Wrap long text — don't let one cell dominate
-                max_len = max(max_len, min(val_len, 40))
+                max_len = max(max_len, min(len(str(cell.value or '')), 50))
             except Exception:
                 pass
         ws.column_dimensions[col_letter].width = min(
@@ -192,211 +169,297 @@ def _autofit(ws, min_w: int = 8, max_w: int = 35) -> None:
         )
 
 
-def _write_section_title(ws, row_num: int, title: str,
-                          n_cols: int,
-                          primary: bool = True) -> int:
-    fill  = SECTION_PRIMARY if primary else SECTION_SECONDARY
-    cell  = ws.cell(row=row_num, column=1)
+def _write_section(ws, row: int, title: str,
+                   n_cols: int, primary: bool = True) -> int:
+    """
+    Write a section title row merged across n_cols.
+    Primary = dark navy. Secondary = dark grey.
+    """
+    color = C_TITLE if primary else C_SUBTITLE
+    cell  = ws.cell(row=row, column=1)
     cell.value     = title
-    cell.font      = Font(bold=True, size=11, color="FFFFFF")
-    cell.fill      = fill
-    cell.alignment = Alignment(vertical="center")
-    ws.row_dimensions[row_num].height = 22
+    cell.font      = Font(
+        bold=True, size=11 if primary else 10, color='FFFFFF'
+    )
+    cell.fill      = _fill(color)
+    cell.alignment = Alignment(vertical='center', wrap_text=False)
+    ws.row_dimensions[row].height = 24 if primary else 20
+
+    # Fill remaining cols with same color
     for col in range(2, n_cols + 1):
-        ws.cell(row=row_num, column=col).fill = fill
-    return row_num + 1
+        ws.cell(row=row, column=col).fill = _fill(color)
+
+    # Merge cells
+    if n_cols > 1:
+        try:
+            ws.merge_cells(
+                start_row=row, start_column=1,
+                end_row=row,   end_column=n_cols
+            )
+        except Exception:
+            pass
+
+    # Thick bottom border
+    ws.cell(row=row, column=1).border = Border(
+        bottom=Side(style='medium', color='AAAAAA')
+    )
+    return row + 1
 
 
-def _color_p_cell(ws, row_num: int, headers: list) -> None:
-    """Color p-value cells only (not the whole row)."""
-    p_col_names = {
-        "p", "p-value", "p_fdr", "p_a", "p_b",
-        "p_c", "p_cprime", "p_fchange"
-    }
+def _write_headers(ws, row: int, headers: list) -> int:
+    """Write column header row in medium blue."""
     for col_idx, h in enumerate(headers, start=1):
-        if str(h).lower() in p_col_names:
-            cell  = ws.cell(row=row_num, column=col_idx)
-            fill  = _p_fill(cell.value)
-            if fill:
-                cell.fill = fill
-                cell.font = Font(size=10, bold=True)
-
-
-def _color_mediation_cells(ws, row_num: int, headers: list,
-                            row_data: pd.Series) -> None:
-    """
-    Color mediation-specific cells:
-    - Mediation_type: dark green (full) / light green (partial) / none
-    - Multicollinearity: orange if warning present
-    """
-    for col_idx, h in enumerate(headers, start=1):
-        if h == "Mediation_type":
-            med_type = str(row_data.get("Mediation_type", ""))
-            fill     = MED_FILLS.get(med_type)
-            if fill:
-                cell      = ws.cell(row=row_num, column=col_idx)
-                cell.fill = fill
-                cell.font = Font(
-                    size=10, bold=True,
-                    color="FFFFFF" if med_type == "Full mediation" else "1A5276"
-                )
-
-        elif h == "Multicollinearity":
-            val = str(row_data.get("Multicollinearity", ""))
-            if "⚠️" in val or "r > 0.80" in val:
-                cell      = ws.cell(row=row_num, column=col_idx)
-                cell.fill = MULTICOL_FILL
-                cell.font = Font(size=10, bold=True)
+        cell           = ws.cell(row=row, column=col_idx)
+        cell.value     = h
+        cell.fill      = _fill(C_HEADER)
+        cell.font      = Font(bold=True, color='FFFFFF', size=9)
+        cell.alignment = Alignment(
+            horizontal='center', vertical='center', wrap_text=True
+        )
+        cell.border = Border(
+            top=Side(style='thin', color='CCCCCC'),
+            bottom=Side(style='thin', color='CCCCCC'),
+        )
+    ws.row_dimensions[row].height = 30
+    return row + 1
 
 
 def _write_df(ws, df: pd.DataFrame, start_row: int,
               color_p: bool = True,
-              color_mediation: bool = False) -> int:
-    """Write DataFrame with appropriate cell coloring."""
+              color_med: bool = False,
+              n_cols_hint: int = None) -> int:
+    """
+    Write a DataFrame with alternating rows, p-value coloring,
+    and optional mediation-type coloring.
+    """
     if df is None or df.empty:
         cell       = ws.cell(row=start_row, column=1)
-        cell.value = "No results."
-        cell.font  = Font(italic=True, color="888888")
+        cell.value = 'No results.'
+        cell.font  = Font(italic=True, color='888888', size=9)
         return start_row + 2
 
     headers = list(df.columns)
     n_cols  = len(headers)
 
-    for col_idx, h in enumerate(headers, start=1):
-        ws.cell(row=start_row, column=col_idx).value = h
-    _style_header(ws, start_row, n_cols)
-    current_row = start_row + 1
+    start_row = _write_headers(ws, start_row, headers)
+
+    p_names   = {'p', 'p-value', 'p_fdr', 'p_a', 'p_b', 'p_c',
+                 'p_cprime', 'p_fchange', 'p (e3)', 'p (e4)', 'p (e5)',
+                 'p (interaction)', 'pp2 p', 'p (f)'}
+    sig_names = {'sig.', 'sig', 'sig. e3', 'sig. e4', 'sig. e5', 'pp2 sig.'}
+    med_names = {'mediation_type', 'type'}
 
     for row_idx, (_, row) in enumerate(df.iterrows()):
-        alt = (row_idx % 2 == 0)
-        _style_data_row(ws, current_row, n_cols, alt=alt)
+        alt  = (row_idx % 2 == 0)
+        base = _fill(C_ALT) if alt else _fill(C_WHITE)
 
         for col_idx, value in enumerate(row, start=1):
-            _write_value(ws.cell(row=current_row, column=col_idx), value)
+            cell           = ws.cell(row=start_row, column=col_idx)
+            cell.font      = Font(size=9)
+            cell.alignment = Alignment(vertical='center', wrap_text=True)
+            cell.fill      = base
+            _write_value(cell, value)
 
-        if color_p:
-            _color_p_cell(ws, current_row, headers)
+            h = str(headers[col_idx - 1]).lower()
 
-        if color_mediation:
-            _color_mediation_cells(ws, current_row, headers, row)
+            # p-value coloring
+            if color_p and h in p_names:
+                try:
+                    p = float(value)
+                    if p < .001:
+                        cell.fill = _fill(C_SIG_001)
+                        cell.font = Font(size=9, bold=True, color='FFFFFF')
+                    elif p < .01:
+                        cell.fill = _fill(C_SIG_01)
+                        cell.font = Font(size=9, bold=True, color='FFFFFF')
+                    elif p < .05:
+                        cell.fill = _fill(C_SIG_05)
+                        cell.font = Font(size=9, bold=True)
+                    else:
+                        cell.fill = _fill(C_NS)
+                except (ValueError, TypeError):
+                    pass
 
-        current_row += 1
+            # Sig. coloring
+            if h in sig_names:
+                v = str(value)
+                if '***' in v:
+                    cell.fill = _fill(C_SIG_001)
+                    cell.font = Font(size=9, bold=True, color='FFFFFF')
+                elif '**' in v:
+                    cell.fill = _fill(C_SIG_01)
+                    cell.font = Font(size=9, bold=True, color='FFFFFF')
+                elif '*' in v and 'ns' not in v:
+                    cell.fill = _fill(C_SIG_05)
+                    cell.font = Font(size=9, bold=True)
+                elif v == 'ns':
+                    cell.fill = _fill(C_NS)
+                    cell.font = Font(size=9, color='666666')
 
-    return current_row + 1
+            # Mediation type coloring
+            if color_med and h in med_names:
+                v = str(value)
+                if 'Full' in v:
+                    cell.fill = _fill(C_MED_FULL)
+                    cell.font = Font(size=9, bold=True, color='FFFFFF')
+                elif 'Partial' in v:
+                    cell.fill = _fill(C_MED_PART)
+                    cell.font = Font(size=9, bold=True, color='1A5276')
+
+            # Multicollinearity warning
+            if h == 'multicollinearity':
+                if '⚠️' in str(value) or 'r > 0.80' in str(value):
+                    cell.fill = _fill(C_MULTICOL)
+                    cell.font = Font(size=9, bold=True)
+
+        start_row += 1
+
+    # Thick border after last data row
+    for col in range(1, n_cols + 1):
+        ws.cell(row=start_row - 1, column=col).border = Border(
+            bottom=Side(style='medium', color='AAAAAA')
+        )
+
+    return start_row + 1
+
+
+def _note(ws, row: int, text: str) -> int:
+    """Write an italic note row."""
+    cell           = ws.cell(row=row, column=1)
+    cell.value     = text
+    cell.font      = Font(italic=True, size=8.5, color='555555')
+    cell.alignment = Alignment(wrap_text=True)
+    ws.row_dimensions[row].height = 22
+    return row + 1
 
 
 # ---------------------------------------------------------------------------
-# Sheet writers
+# Sheet writers — all using unified style
 # ---------------------------------------------------------------------------
+
 def _write_sheet_toc(ws, df: pd.DataFrame) -> None:
+    """Table of Contents."""
     ws.sheet_view.showGridLines = False
     if df is None or df.empty:
         return
     headers = list(df.columns)
     n_cols  = len(headers)
-    for col_idx, h in enumerate(headers, start=1):
-        ws.cell(row=1, column=col_idx).value = h
-    _style_header(ws, 1, n_cols)
-    for row_idx, (_, row) in enumerate(df.iterrows(), start=2):
-        _style_data_row(ws, row_idx, n_cols, alt=(row_idx % 2 == 0))
+
+    _write_section(ws, 1, 'SoundFlow Thesis — Results Excel', n_cols)
+    current_row = _write_headers(ws, 2, headers)
+
+    for row_idx, (_, row) in enumerate(df.iterrows()):
+        alt = (row_idx % 2 == 0)
         for col_idx, value in enumerate(row, start=1):
-            cell       = ws.cell(row=row_idx, column=col_idx)
-            cell.value = str(value) if value else ""
+            cell       = ws.cell(row=current_row, column=col_idx)
+            cell.fill  = _fill(C_ALT) if alt else _fill(C_WHITE)
             cell.font  = Font(size=10)
+            cell.value = str(value) if value else ''
+            cell.alignment = Alignment(vertical='center', wrap_text=True)
+        current_row += 1
+
     _autofit(ws, min_w=20, max_w=80)
 
 
 def _write_sheet_l(ws, df: pd.DataFrame) -> None:
     """Variable Definitions — grouped by category."""
     categories = {
-        "Experimental Design":       ["tone"],
-        "Chatbot Evaluation":        ["E1","E2","E3","E4","E5","E6"],
-        "Perceived Manipulation":    ["PM1","PM2","PM3","PM4","PM_score"],
-        "Competence to Judge":       ["Comp1","Comp2","Comp_score"],
-        "Moral Agency":              ["MA1","MA2","MA_score"],
-        "Moral Patiency":            ["MP1","MP2","MP_score"],
-        "Perceived Autonomy":        ["Ind1","Ind2","Ind_score"],
-        "Perceived Personality":     ["PP1","PP2","PP3","PP4","PP5"],
-        "Feedback Quality (GPT-4o)": [
-            "quantity_run1/2/3","quantity_mean",
-            "quality_run1/2/3","quality_mean",
-            "emotions_run1/2/3","emotions_mean","composite",
+        'Experimental Design':       ['tone'],
+        'Chatbot Evaluation':        ['E1','E2','E3','E4','E5','E6'],
+        'Perceived Manipulation':    ['PM1','PM2','PM3','PM4','PM_score'],
+        'Competence to Judge':       ['Comp1','Comp2','Comp_score'],
+        'Moral Agency':              ['MA1','MA2','MA_score'],
+        'Moral Patiency':            ['MP1','MP2','MP_score'],
+        'Perceived Autonomy':        ['Ind1','Ind2','Ind_score'],
+        'Perceived Personality':     ['PP1','PP2','PP3','PP4','PP5'],
+        'Feedback Quality (GPT-4o)': [
+            'quantity_run1/2/3','quantity_mean',
+            'quality_run1/2/3','quality_mean',
+            'emotions_run1/2/3','emotions_mean','composite',
         ],
-        "Engagement": [
-            "avg_words_per_turn","chat_duration_sec",
-            "z_avg_words","z_duration","engagement_score",
-            "conversation_completed","total_user_words","num_turns",
+        'Engagement': [
+            'avg_words_per_turn','chat_duration_sec',
+            'z_avg_words','z_duration','engagement_score',
+            'conversation_completed','total_user_words','num_turns',
         ],
-        "Demographics": ["age","gender","language"],
+        'Demographics': ['age','gender','language'],
     }
-    cat_colors = {
-        "Experimental Design":       "1F618D",
-        "Chatbot Evaluation":        "784212",
-        "Perceived Manipulation":    "1A5276",
-        "Competence to Judge":       "1A5276",
-        "Moral Agency":              "1A5276",
-        "Moral Patiency":            "1A5276",
-        "Perceived Autonomy":        "1A5276",
-        "Perceived Personality":     "7B241C",
-        "Feedback Quality (GPT-4o)": "1D6A39",
-        "Engagement":                "4A235A",
-        "Demographics":              "424949",
-    }
+
+    if df is None or df.empty:
+        return
+
     headers  = list(df.columns)
     n_cols   = len(headers)
     curr_row = 1
 
     for cat_name, var_list in categories.items():
-        curr_row = _write_section_title(
-            ws, curr_row, cat_name, n_cols, primary=True
-        )
-        for col in range(1, n_cols + 1):
-            ws.cell(row=curr_row-1, column=col).fill = _fill(
-                cat_colors.get(cat_name, "1B4F72")
+        color = CAT_COLORS.get(cat_name, C_TITLE)
+
+        # Category title (merged, colored)
+        cell       = ws.cell(row=curr_row, column=1)
+        cell.value = cat_name
+        cell.font  = Font(bold=True, size=10, color='FFFFFF')
+        cell.fill  = _fill(color)
+        cell.alignment = Alignment(vertical='center')
+        ws.row_dimensions[curr_row].height = 20
+        for col in range(2, n_cols + 1):
+            ws.cell(row=curr_row, column=col).fill = _fill(color)
+        try:
+            ws.merge_cells(
+                start_row=curr_row, start_column=1,
+                end_row=curr_row,   end_column=n_cols
             )
-        for col_idx, h in enumerate(headers, start=1):
-            ws.cell(row=curr_row, column=col_idx).value = h
-        _style_header(ws, curr_row, n_cols)
+        except Exception:
+            pass
         curr_row += 1
 
-        cat_df = df[df["Variable"].isin(var_list)].copy()
+        # Column headers
+        curr_row = _write_headers(ws, curr_row, headers)
+
+        # Data rows
+        cat_df = df[df['Variable'].isin(var_list)].copy()
         for row_idx, (_, row) in enumerate(cat_df.iterrows()):
-            _style_data_row(ws, curr_row, n_cols, alt=(row_idx % 2 == 0))
+            alt = (row_idx % 2 == 0)
             for col_idx, value in enumerate(row, start=1):
-                _write_value(ws.cell(row=curr_row, column=col_idx), value)
+                cell      = ws.cell(row=curr_row, column=col_idx)
+                cell.fill = _fill(C_ALT) if alt else _fill(C_WHITE)
+                cell.font = Font(size=9)
+                cell.alignment = Alignment(vertical='center', wrap_text=True)
+                _write_value(cell, value)
             curr_row += 1
-        curr_row += 1
 
-    _autofit(ws, min_w=15, max_w=50)
+        curr_row += 1  # blank row between categories
+
+    _autofit(ws, min_w=15, max_w=55)
 
 
 def _write_sheet_k(ws, df: pd.DataFrame) -> None:
-    """Cleaned Data — vivid color-coded headers."""
-    def _header_color(col: str) -> str:
-        if col.startswith(("PM","Comp","Ind","MA","MP")):
-            return "1A5276"
-        if col.startswith("PP"):
-            return "7B241C"
-        if col.startswith("E") and col[1:].isdigit():
-            return "784212"
-        if col in ["composite","quantity_mean","quality_mean",
-                   "emotions_mean","quantity_run1","quantity_run2",
-                   "quantity_run3","quality_run1","quality_run2",
-                   "quality_run3","emotions_run1","emotions_run2",
-                   "emotions_run3","quantity_sd","quality_sd","emotions_sd"]:
-            return "1D6A39"
-        if col in ["engagement_score","z_avg_words","z_duration",
-                   "avg_words_per_turn","chat_duration_sec",
-                   "num_turns","total_user_words","conversation_completed"]:
-            return "4A235A"
-        if col in ["age","gender","language"]:
-            return "424949"
-        if col in ["tone","tone_raw"]:
-            return "1F618D"
-        return "1B4F72"
+    """Cleaned Data — color-coded headers by variable type."""
+    def _col_color(col: str) -> str:
+        if col.startswith(('PM', 'Comp', 'Ind', 'MA', 'MP')):
+            return BLOCK_COLORS['ai']
+        if col.startswith('PP'):
+            return BLOCK_COLORS['personality']
+        if col.startswith('E') and col[1:].isdigit():
+            return BLOCK_COLORS['eval']
+        if col in ['composite','quantity_mean','quality_mean','emotions_mean',
+                   'quantity_run1','quantity_run2','quantity_run3',
+                   'quality_run1','quality_run2','quality_run3',
+                   'emotions_run1','emotions_run2','emotions_run3',
+                   'quantity_sd','quality_sd','emotions_sd']:
+            return BLOCK_COLORS['quality']
+        if col in ['engagement_score','z_avg_words','z_duration',
+                   'avg_words_per_turn','chat_duration_sec',
+                   'num_turns','total_user_words','conversation_completed']:
+            return BLOCK_COLORS['engage']
+        if col in ['age','gender','language']:
+            return BLOCK_COLORS['demo']
+        if col in ['tone','tone_raw']:
+            return BLOCK_COLORS['tone']
+        return BLOCK_COLORS['default']
 
     if df is None or df.empty:
-        ws.cell(row=1, column=1).value = "No data."
+        ws.cell(row=1, column=1).value = 'No data.'
         return
 
     headers = list(df.columns)
@@ -405,154 +468,132 @@ def _write_sheet_k(ws, df: pd.DataFrame) -> None:
     for col_idx, h in enumerate(headers, start=1):
         cell           = ws.cell(row=1, column=col_idx)
         cell.value     = h
-        cell.fill      = _fill(_header_color(h))
-        cell.font      = Font(bold=True, color="FFFFFF", size=9)
+        cell.fill      = _fill(_col_color(h))
+        cell.font      = Font(bold=True, color='FFFFFF', size=9)
         cell.alignment = Alignment(
-            horizontal="center", vertical="center", wrap_text=True
+            horizontal='center', vertical='center', wrap_text=True
         )
     ws.row_dimensions[1].height = 35
 
     for row_idx, (_, row) in enumerate(df.iterrows(), start=2):
-        _style_data_row(ws, row_idx, n_cols, alt=(row_idx % 2 == 0))
+        alt = (row_idx % 2 == 0)
         for col_idx, value in enumerate(row, start=1):
-            _write_value(ws.cell(row=row_idx, column=col_idx), value)
+            cell           = ws.cell(row=row_idx, column=col_idx)
+            cell.fill      = _fill(C_ALT) if alt else _fill(C_WHITE)
+            cell.font      = Font(size=9)
+            cell.alignment = Alignment(vertical='center', wrap_text=True)
+            _write_value(cell, value)
 
     _autofit(ws, min_w=8, max_w=25)
 
 
 def _write_sheet_a(ws, data: dict) -> None:
-    """Correlations — use Label X/Y instead of Variable X/Y."""
-    recap = data.get("recap", pd.DataFrame())
-    full  = data.get("full",  pd.DataFrame())
+    """Correlations — Label X/Y, FDR recap + full."""
+    recap = data.get('recap', pd.DataFrame())
+    full  = data.get('full',  pd.DataFrame())
 
-    def _simplify(df):
-        if df.empty or "note" in df.columns:
+    def _clean(df):
+        if df.empty or 'note' in df.columns:
             return df
         df = df.copy()
-        # Keep Label X/Y, drop Variable X/Y
-        drop_cols = [c for c in ["Variable X","Variable Y"] if c in df.columns]
-        df = df.drop(columns=drop_cols)
-        return df
+        return df.drop(
+            columns=[c for c in ['Variable X','Variable Y'] if c in df.columns]
+        )
 
-    recap = _simplify(recap)
-    full  = _simplify(full)
-
-    n_cols      = max(
+    recap   = _clean(recap)
+    full    = _clean(full)
+    n_cols  = max(
         len(recap.columns) if not recap.empty else 1,
         len(full.columns)  if not full.empty  else 1,
     )
-    current_row = 1
-
-    current_row = _write_section_title(
-        ws, current_row,
-        "RECAP — Significant correlations only (FDR corrected)",
-        n_cols, primary=True
-    )
-    current_row = _write_df(ws, recap, current_row, color_p=True)
-
-    current_row = _write_section_title(
-        ws, current_row,
-        "FULL RESULTS — All tested pairs",
-        n_cols, primary=False
-    )
-    _write_df(ws, full, current_row, color_p=True)
-
+    row = 1
+    row = _write_section(ws, row,
+        'RECAP — Significant correlations only (FDR corrected)', n_cols)
+    row = _write_df(ws, recap, row, color_p=True)
+    row = _write_section(ws, row,
+        'FULL RESULTS — All tested pairs', n_cols, primary=False)
+    _write_df(ws, full, row, color_p=True)
     _autofit(ws)
 
 
 def _write_sheet_b(ws, data: dict) -> None:
-    """Effect of Tone — recap + 5 blocks."""
-    block_configs = [
-        ("recap",       "RECAP — Significant results only",        True),
-        ("ai",          "AI Perceptions",                          False),
-        ("personality", "Perceived Personality",                   False),
-        ("eval",        "Chatbot Evaluation",                      False),
-        ("quality",     "Quality & Engagement",                    False),
-        ("h3",          "H3 — Paired t-test: Comp1 vs Comp2",     False),
+    """Effect of Tone."""
+    blocks = [
+        ('recap',       'RECAP — Significant results only',       True),
+        ('personality', 'Perceived Personality',                   False),
+        ('ai',          'AI Perceptions',                          False),
+        ('eval',        'Chatbot Evaluation',                      False),
+        ('quality',     'Quality & Engagement',                    False),
+        ('h3',          'H3 — Paired t-test: Comp1 vs Comp2',     False),
     ]
     n_cols = max(
         len(v.columns) if isinstance(v, pd.DataFrame) and not v.empty else 1
         for v in data.values()
     ) if data else 10
-    current_row = 1
-    for key, title, primary in block_configs:
-        current_row = _write_section_title(
-            ws, current_row, title, n_cols, primary=primary
-        )
-        current_row = _write_df(
-            ws, data.get(key, pd.DataFrame()), current_row, color_p=True
-        )
+
+    row = 1
+    for key, title, primary in blocks:
+        row = _write_section(ws, row, title, n_cols, primary=primary)
+        row = _write_df(ws, data.get(key, pd.DataFrame()), row, color_p=True)
     _autofit(ws)
 
 
 def _write_sheet_c(ws, data: dict) -> None:
-    """AI Perception Regressions — IV Label + DV Label."""
-    recap = data.get("recap", pd.DataFrame())
-    full  = data.get("full",  pd.DataFrame())
+    """AI Perception Regressions — with IV/DV labels."""
+    recap = data.get('recap', pd.DataFrame())
+    full  = data.get('full',  pd.DataFrame())
 
     def _add_labels(df):
-        if df.empty or "note" in df.columns:
+        if df.empty or 'note' in df.columns:
             return df
         df = df.copy()
-        if "IV" in df.columns:
-            df["IV_clean"] = df["IV"].str.replace(
-                r"\s*\(H4\)", "", regex=True
-            ).str.strip()
-            idx = df.columns.get_loc("IV") + 1
-            df.insert(idx, "IV Label",
-                      df["IV_clean"].map(IV_LABELS).fillna(df["IV_clean"]))
-        if "DV" in df.columns:
-            idx = df.columns.get_loc("DV") + 1
-            df.insert(idx, "DV Label",
-                      df["DV"].map(DV_LABELS_REGRESSION).fillna(df["DV"]))
-        df = df.drop(
-            columns=[c for c in ["Scale","IV_clean"] if c in df.columns]
+        if 'IV' in df.columns:
+            df['IV_clean'] = df['IV'].str.replace(
+                r'\s*\(H4\)', '', regex=True).str.strip()
+            idx = df.columns.get_loc('IV') + 1
+            df.insert(idx, 'IV Label',
+                      df['IV_clean'].map(IV_LABELS).fillna(df['IV_clean']))
+        if 'DV' in df.columns:
+            idx = df.columns.get_loc('DV') + 1
+            df.insert(idx, 'DV Label',
+                      df['DV'].map(DV_LABELS_REGRESSION).fillna(df['DV']))
+        return df.drop(
+            columns=[c for c in ['Scale','IV_clean'] if c in df.columns]
         )
-        return df
 
-    recap = _add_labels(recap)
-    full  = _add_labels(full)
+    recap  = _add_labels(recap)
+    full   = _add_labels(full)
     n_cols = max(
         len(full.columns)  if not full.empty  else 1,
         len(recap.columns) if not recap.empty else 1,
     )
-    current_row = 1
-    current_row = _write_section_title(
-        ws, current_row,
-        "RECAP — Significant results only",
-        n_cols, primary=True
-    )
-    current_row = _write_df(ws, recap, current_row, color_p=True)
-    current_row = _write_section_title(
-        ws, current_row,
-        "FULL RESULTS — All a priori regressions",
-        n_cols, primary=False
-    )
-    _write_df(ws, full, current_row, color_p=True)
+    row = 1
+    row = _write_section(ws, row, 'RECAP — Significant results only', n_cols)
+    row = _write_df(ws, recap, row, color_p=True)
+    row = _write_section(ws, row,
+        'FULL RESULTS — All a priori regressions', n_cols, primary=False)
+    _write_df(ws, full, row, color_p=True)
     _autofit(ws)
 
 
-def _write_hierarchical_sheet(
-    ws, data: dict, dvs: list, sheet_title: str
-) -> None:
-    """Hierarchical regression — subtables per DV."""
-    full  = data.get("full",  pd.DataFrame())
-    recap = data.get("recap", pd.DataFrame())
+def _write_hierarchical_sheet(ws, data: dict,
+                               dvs: list, sheet_title: str) -> None:
+    """Hierarchical regression sheet with subtables per DV."""
+    full  = data.get('full',  pd.DataFrame())
+    recap = data.get('recap', pd.DataFrame())
 
     def _add_labels(df):
-        if df.empty or "note" in df.columns:
+        if df.empty or 'note' in df.columns:
             return df
         df = df.copy()
-        if "Predictor" in df.columns:
-            idx = df.columns.get_loc("Predictor") + 1
-            df.insert(idx, "Label",
-                      df["Predictor"].map(PREDICTOR_LABELS).fillna(
-                          df["Predictor"]
-                      ))
-        df = df.drop(
-            columns=[c for c in ["Block","Scale"] if c in df.columns]
+        if 'Predictor' in df.columns:
+            idx = df.columns.get_loc('Predictor') + 1
+            df.insert(idx, 'Label',
+                      df['Predictor'].map(PREDICTOR_LABELS).fillna(
+                          df['Predictor']))
+        return df.drop(
+            columns=[c for c in ['Block','Scale'] if c in df.columns]
         )
-        return df
 
     full  = _add_labels(full)
     recap = _add_labels(recap)
@@ -560,32 +601,24 @@ def _write_hierarchical_sheet(
         len(full.columns)  if not full.empty  else 1,
         len(recap.columns) if not recap.empty else 1,
     )
-    current_row = 1
 
-    current_row = _write_section_title(
-        ws, current_row,
-        "RECAP — Significant results only",
-        n_cols, primary=True
-    )
-    current_row = _write_df(ws, recap, current_row, color_p=True)
-
-    current_row = _write_section_title(
-        ws, current_row, "FULL RESULTS", n_cols, primary=True
-    )
+    row = 1
+    row = _write_section(ws, row, 'RECAP — Significant results only', n_cols)
+    row = _write_df(ws, recap, row, color_p=True)
+    row = _write_section(ws, row, 'FULL RESULTS', n_cols)
 
     for dv in dvs:
-        if full.empty or "DV" not in full.columns:
+        if full.empty or 'DV' not in full.columns:
             break
-        df_dv = full[full["DV"] == dv].copy()
+        df_dv = full[full['DV'] == dv].copy()
         if df_dv.empty:
             continue
-        current_row = _write_section_title(
-            ws, current_row,
-            f"DV = {DV_LABELS.get(dv, dv)}",
+        row = _write_section(
+            ws, row, f'DV = {DV_LABELS.get(dv, dv)}',
             n_cols, primary=False
         )
-        df_dv       = df_dv.drop(columns=["DV"], errors="ignore")
-        current_row = _write_df(ws, df_dv, current_row, color_p=True)
+        df_dv = df_dv.drop(columns=['DV'], errors='ignore')
+        row   = _write_df(ws, df_dv, row, color_p=True)
 
     _autofit(ws)
 
@@ -593,69 +626,60 @@ def _write_hierarchical_sheet(
 def _write_sheet_d(ws, data: dict) -> None:
     _write_hierarchical_sheet(
         ws, data,
-        dvs=["composite", "engagement_score", "emotions_mean"],
-        sheet_title="Predictors of Feedback Quality",
+        dvs=['composite', 'engagement_score', 'emotions_mean'],
+        sheet_title='Predictors of Feedback Quality',
     )
 
 
 def _write_sheet_e(ws, data: dict) -> None:
     _write_hierarchical_sheet(
         ws, data,
-        dvs=["E3", "E4", "E5", "E6"],
-        sheet_title="Predictors of Chatbot Evaluation",
+        dvs=['E3', 'E4', 'E5', 'E6'],
+        sheet_title='Predictors of Chatbot Evaluation',
     )
 
 
 def _write_sheet_f(ws, data: dict) -> None:
     """Mediation Analyses — subtables per mediator."""
-    full  = data.get("full",  pd.DataFrame())
-    recap = data.get("recap", pd.DataFrame())
+    full  = data.get('full',  pd.DataFrame())
+    recap = data.get('recap', pd.DataFrame())
 
-    if full.empty or "note" in full.columns:
+    if full.empty or 'note' in full.columns:
         ws.cell(row=1, column=1).value = (
-            "Run GPT scoring first to enable full mediation analyses."
+            'Run GPT scoring first to enable full mediation analyses.'
         )
         return
 
-    n_cols      = len(full.columns)
-    current_row = 1
+    n_cols = len(full.columns)
+    row    = 1
 
-    # Recap
-    current_row = _write_section_title(
-        ws, current_row,
-        "RECAP — Significant indirect effects (CI excludes 0)",
-        n_cols, primary=True
+    row = _write_section(
+        ws, row,
+        'RECAP — Significant indirect effects (CI excludes 0)',
+        n_cols
     )
-    current_row = _write_df(
-        ws, recap, current_row,
-        color_p=False, color_mediation=True
-    )
+    row = _write_df(ws, recap, row, color_p=False, color_med=True)
 
-    # Series subtables
     for series_val, series_label in [
-        ("1", "SERIES 1 — Tone as IV"),
-        ("2", "SERIES 2 — AI Perceptions as IV"),
+        ('1', 'SERIES 1 — Tone as IV'),
+        ('2', 'SERIES 2 — AI Perceptions as IV'),
     ]:
-        df_series = full[full["Series"] == series_val].copy()
+        df_series = full[full['Series'] == series_val].copy()
         if df_series.empty:
             continue
-        current_row = _write_section_title(
-            ws, current_row, series_label, n_cols, primary=True
-        )
-        for med in df_series["Mediator"].unique():
-            df_med = df_series[df_series["Mediator"] == med].copy()
+        row = _write_section(ws, row, series_label, n_cols)
+
+        for med in df_series['Mediator'].unique():
+            df_med = df_series[df_series['Mediator'] == med].copy()
             if df_med.empty:
                 continue
-            med_label   = PREDICTOR_LABELS.get(med, med)
-            current_row = _write_section_title(
-                ws, current_row,
-                f"Mediator = {med_label}",
+            med_label = PREDICTOR_LABELS.get(med, med)
+            row = _write_section(
+                ws, row, f'Mediator = {med_label}',
                 n_cols, primary=False
             )
-            current_row = _write_df(
-                ws, df_med, current_row,
-                color_p=False, color_mediation=True
-            )
+            row = _write_df(ws, df_med, row,
+                            color_p=False, color_med=True)
 
     _autofit(ws)
 
@@ -663,75 +687,65 @@ def _write_sheet_f(ws, data: dict) -> None:
 def _write_sheet_g(ws, data) -> None:
     """GPT Scoring."""
     if isinstance(data, dict):
-        sheet_g   = data.get("scores",  pd.DataFrame())
-        summary_g = data.get("summary", pd.DataFrame())
+        scores  = data.get('scores',  pd.DataFrame())
+        summary = data.get('summary', pd.DataFrame())
     else:
-        sheet_g   = data
-        summary_g = pd.DataFrame()
+        scores  = data
+        summary = pd.DataFrame()
 
-    n_cols      = max(
-        len(sheet_g.columns)   if not sheet_g.empty   else 1,
-        len(summary_g.columns) if not summary_g.empty else 1,
+    n_cols = max(
+        len(scores.columns)  if not scores.empty  else 1,
+        len(summary.columns) if not summary.empty else 1,
     )
-    current_row = 1
+    row = 1
 
-    if not summary_g.empty:
-        current_row = _write_section_title(
-            ws, current_row,
-            "SUMMARY BY TONE CONDITION",
-            n_cols, primary=True
-        )
-        current_row = _write_df(ws, summary_g, current_row, color_p=False)
+    if not summary.empty:
+        row = _write_section(ws, row, 'SUMMARY BY TONE CONDITION', n_cols)
+        row = _write_df(ws, summary, row, color_p=False)
 
-    current_row = _write_section_title(
-        ws, current_row,
-        "FULL SCORES — All participants",
-        n_cols, primary=False
+    row = _write_section(
+        ws, row, 'FULL SCORES — All participants', n_cols, primary=False
     )
-    _write_df(ws, sheet_g, current_row, color_p=False)
+    _write_df(ws, scores, row, color_p=False)
     _autofit(ws)
 
 
 def _write_sheet_h(ws, data: dict) -> None:
-    """Word Frequencies — two tables + wordcloud note."""
+    """Word Frequencies."""
     if not data:
-        ws.cell(row=1, column=1).value = "No word frequency results."
+        ws.cell(row=1, column=1).value = 'No word frequency results.'
         return
 
-    freq_table  = data.get("freq_table",  pd.DataFrame())
-    tfidf_table = data.get("tfidf_table", pd.DataFrame())
-    wc_paths    = data.get("wordcloud_paths", [])
+    freq  = data.get('freq_table',  pd.DataFrame())
+    tfidf = data.get('tfidf_table', pd.DataFrame())
+    wcs   = data.get('wordcloud_paths', [])
 
-    n_cols      = max(
-        len(freq_table.columns)  if not freq_table.empty  else 1,
-        len(tfidf_table.columns) if not tfidf_table.empty else 1,
+    n_cols = max(
+        len(freq.columns)  if not freq.empty  else 1,
+        len(tfidf.columns) if not tfidf.empty else 1,
     )
-    current_row = 1
-
-    current_row = _write_section_title(
-        ws, current_row,
-        "TABLE 1 — Word Frequencies (top 50 per condition)",
-        n_cols, primary=True
+    row = 1
+    row = _write_section(
+        ws, row, 'TABLE 1 — Word Frequencies (top 50 per condition)', n_cols
     )
-    current_row = _write_df(ws, freq_table, current_row, color_p=False)
-
-    current_row = _write_section_title(
-        ws, current_row,
-        "TABLE 2 — Delta TF-IDF "
-        "(positive = more distinctive in Friendly / "
-        "negative = more distinctive in Professional)",
-        n_cols, primary=True
+    row = _write_df(ws, freq, row, color_p=False)
+    row = _write_section(
+        ws, row,
+        'TABLE 2 — Delta TF-IDF '
+        '(positive = more distinctive in Casual / '
+        'negative = more distinctive in Formal)',
+        n_cols
     )
-    current_row = _write_df(ws, tfidf_table, current_row, color_p=False)
+    row = _write_df(ws, tfidf, row, color_p=False)
 
-    if wc_paths:
-        note        = ws.cell(row=current_row, column=1)
-        note.value  = (
-            f"Wordcloud PNG files: "
-            f"{', '.join(os.path.basename(p) for p in wc_paths)} "
-            f"— saved in outputs/wordclouds/"
+    if wcs:
+        cell           = ws.cell(row=row, column=1)
+        cell.value     = (
+            'Wordcloud PNG files saved in outputs/wordclouds/: '
+            + ', '.join(os.path.basename(p) for p in wcs)
         )
-        note.font   = Font(italic=True, color="555555", size=10)
+        cell.font      = Font(italic=True, size=9, color='555555')
+        cell.alignment = Alignment(wrap_text=True)
 
     _autofit(ws)
 
@@ -740,24 +754,216 @@ def _write_sheet_i(ws, data: dict) -> None:
     """Demographics & Robustness."""
     n_cols   = 10
     sections = [
-        ("DESCRIPTIVE STATISTICS",                   "descriptives",  False),
-        ("RANDOMISATION CHECKS",                     "randomisation", False),
-        ("EXCLUSION SUMMARY",                        "exclusions",    False),
-        ("NORMALITY CHECKS (Shapiro-Wilk)",          "normality",     False),
-        ("ANCOVA — Recap (significant only)",        "ancova_recap",  True),
-        ("ANCOVA — Full results",                    "ancova",        False),
-        ("INTERACTIONS — Recap (significant only)",  "inter_recap",   True),
-        ("INTERACTIONS — Full results",              "interactions",  False),
+        ('DESCRIPTIVE STATISTICS',                   'descriptives',  True),
+        ('RANDOMISATION CHECKS',                     'randomisation', False),
+        ('EXCLUSION SUMMARY',                        'exclusions',    False),
+        ('NORMALITY CHECKS (Shapiro-Wilk)',          'normality',     False),
+        ('ANCOVA — Recap (significant only)',        'ancova_recap',  True),
+        ('ANCOVA — Full results',                    'ancova',        False),
+        ('INTERACTIONS — Recap (significant only)',  'inter_recap',   True),
+        ('INTERACTIONS — Full results',              'interactions',  False),
     ]
-    current_row = 1
+    row = 1
     for title, key, primary in sections:
-        current_row = _write_section_title(
-            ws, current_row, title, n_cols, primary=primary
-        )
-        current_row = _write_df(
-            ws, data.get(key, pd.DataFrame()), current_row, color_p=True
-        )
+        row = _write_section(ws, row, title, n_cols, primary=primary)
+        row = _write_df(ws, data.get(key, pd.DataFrame()), row, color_p=True)
     _autofit(ws)
+
+
+def _write_sheet_supplementary(ws, supp: dict) -> None:
+    """Supplementary Analyses sheet."""
+    ws.sheet_view.showGridLines = False
+
+    sections = [
+        ('SECTION 1 — Supplementary Correlations',
+         'correlations', True, True, False,
+         '*** p<.001  ** p<.01  * p<.05  '
+         'FDR correction not applied to these targeted pairs.'),
+        ('SECTION 2 — Composite & Engagement by Tone × Language',
+         'tone_language', True, False, False,
+         'Tone × language interaction significant for engagement (F=4.20, p=.042) '
+         'but not for composite quality.'),
+        ('SECTION 3 — Emotional Expression by Tone Condition',
+         'emotions_tone', True, False, False,
+         'No significant difference by tone (t=1.530, p=.128).'),
+        ('SECTION 4 — H3: Comp1 vs Comp2 by Tone',
+         'h3_by_tone', True, False, False,
+         'H3 effect is independent of tone condition (p=.353).'),
+        ('SECTION 5 — Professional (PP2) vs Formal (PP5)',
+         'pp2_vs_pp5', True, True, False,
+         'Only PP2 (not PP5) is associated with positive evaluation and '
+         'negatively with PM.'),
+        ('SECTION 6 — Interaction Effects: PM × AI Perceptions → E3/E4/E5',
+         'pm_interactions', True, True, False,
+         'Significant interaction: PM × MP → E3 (β=.117, p=.047). '
+         'All others ns.'),
+        ('SECTION 7 — Simple Slopes: PM × MP → E3',
+         'simple_slopes', False, False, False,
+         'PM effect at M−1SD: β=−.525 | Mean: β=−.337 | M+1SD: β=−.149'),
+        ('SECTION 8 — Moderation: Tone × PM → Outcomes',
+         'tone_pm_moderation', True, True, False,
+         'Marginal effect for reuse intention (p=.050). '
+         'All other interactions ns.'),
+        ('SECTION 9 — Mediation: Tone → PP1/PP3/PP4 → PM',
+         'pp_pm_mediations', True, False, True,
+         'All three personality mediations significant (CI excludes 0). '
+         'Full mediation in each case.'),
+        ('SECTION 10 — Serial Mediation: Tone → PM → Effort → Evaluation',
+         'serial_mediations', True, False, True,
+         'Not significant — PM effect is direct, not channelled via effort.'),
+        ('SECTION 11 — E6 Regression with PP2',
+         'e6_regression', True, True, False,
+         'PP2: β=.240, p=.054 (quasi-significant). '
+         'E6 remains largely unexplained.'),
+        ('SECTION 11b — Model Comparison: E6 With vs Without PP2',
+         'e6_model_comparison', False, False, False, None),
+        ('SECTION 12 — Friendly+Professional vs Formal+Professional',
+         'friendly_pro_comparison', True, True, False,
+         'All differences non-significant (all p>.37). '
+         'Consistent with correlational evidence but not confirmatory.'),
+    ]
+
+    # --- RECAP ---
+    recap_rows = []
+    for title, key, *_ in sections:
+        if key not in supp:
+            continue
+        df_s = supp[key]
+        if df_s.empty:
+            continue
+        sig_col = next(
+            (c for c in df_s.columns if c.lower() in ('sig.', 'sig')), None
+        )
+        if sig_col:
+            sig_df = df_s[
+                df_s[sig_col].astype(str).str.contains(r'\*', na=False)
+            ]
+            for _, r in sig_df.iterrows():
+                entry = {'Section': title.split(' — ')[-1]}
+                for c in df_s.columns:
+                    if c in ('Pair','Path','Interaction','DV','Predictor',
+                             'β','β interaction','Indirect','CI_low',
+                             'CI_high','r','p','Sig.','Type',
+                             'Mediation_type','Interpretation'):
+                        entry[c] = r.get(c, '')
+                recap_rows.append(entry)
+
+    n_cols_max = 12
+    row        = 1
+
+    row = _write_section(
+        ws, row, 'RECAP — All Significant Supplementary Results',
+        n_cols_max
+    )
+    if recap_rows:
+        row = _write_df(
+            ws, pd.DataFrame(recap_rows), row,
+            color_p=True, color_med=True
+        )
+    else:
+        ws.cell(row=row, column=1).value = 'No significant supplementary results.'
+        row += 2
+
+    row += 1
+
+    # --- SECTIONS ---
+    for title, key, primary, color_p, color_med, note in sections:
+        n_cols = max(
+            len(supp[key].columns)
+            if key in supp and not supp[key].empty else 1,
+            1
+        )
+        row = _write_section(
+            ws, row, title, max(n_cols, n_cols_max), primary=primary
+        )
+        if note:
+            row = _note(ws, row, note)
+        if key in supp and not supp[key].empty:
+            row = _write_df(
+                ws, supp[key], row,
+                color_p=color_p, color_med=color_med
+            )
+        else:
+            ws.cell(row=row, column=1).value = 'No data.'
+            row += 2
+        row += 1
+
+    _autofit(ws, min_w=10, max_w=40)
+
+
+def _write_sheet_figures(ws, figure_paths: list) -> None:
+    """Insert figure PNGs into the Figures sheet."""
+    try:
+        from openpyxl.drawing.image import Image as XLImage
+    except ImportError:
+        log.warning('openpyxl.drawing not available — skipping figure insertion.')
+        return
+
+    ws.sheet_view.showGridLines = False
+    ws.column_dimensions['A'].width = 2
+
+    fig_labels = {
+        'figure1':  'Figure 1 — Effect of Tone on Perceived Personality and PM',
+        'figure2':  'Figure 2 — Full Path Diagram: Tone → Personality → PM → Outcomes',
+        'figure3':  'Figure 3 — PM as Central Predictor of Chatbot Evaluation',
+        'figure4':  'Figure 4 — Interaction: PM × Moral Patiency → Appreciation',
+        'figure5':  'Figure 5 — Engagement Score and Quality by Tone × Language',
+        'figure6':  'Figure 6 — Drivers of Reuse Intention',
+        'figure7':  'Figure 7 — Comp1 (Skills) vs Comp2 (Morality) by Tone',
+        'figure8':  'Figure 8 — Predictors of Feedback Quality (3-step regression)',
+        'figure9':  'Figure 9 — Differential Predictors of E3/E4/E5',
+        'figure10': 'Figure 10 — Professional (PP2) vs Formal (PP5): Correlations',
+        'figure11': 'Figure 11 — Mediation: MA2 → MA1 → Appreciation',
+        'figure12': 'Figure 12 — Competence-Autonomy Cluster and Moral Perceptions',
+    }
+
+    row = 1
+    _write_section(ws, row, 'Thesis Figures — All 12 Figures', 15)
+    row = 2
+
+    for path in figure_paths:
+        if not path or not os.path.exists(path):
+            continue
+
+        # Figure label from filename
+        basename = os.path.basename(path).replace('.png', '')
+        parts    = basename.split('_')
+        fig_key  = parts[0] + parts[1] if len(parts) > 1 else basename
+        label    = fig_labels.get(
+            fig_key,
+            basename.replace('_', ' ').title()
+        )
+
+        # Title row
+        title_cell       = ws.cell(row=row, column=2)
+        title_cell.value = label
+        title_cell.font  = Font(bold=True, size=10, color='FFFFFF')
+        title_cell.fill  = _fill(C_TITLE)
+        title_cell.alignment = Alignment(vertical='center')
+        ws.row_dimensions[row].height = 22
+        try:
+            ws.merge_cells(
+                start_row=row, start_column=2,
+                end_row=row,   end_column=15
+            )
+        except Exception:
+            pass
+        row += 1
+
+        # Insert image
+        try:
+            img        = XLImage(path)
+            img.width  = int(img.width  * 0.62)
+            img.height = int(img.height * 0.62)
+            ws.add_image(img, f'B{row}')
+            n_rows = max(int(img.height / 14) + 2, 28)
+            for r in range(row, row + n_rows):
+                ws.row_dimensions[r].height = 14
+            row += n_rows + 3
+        except Exception as e:
+            log.warning(f'Could not insert {path}: {e}')
+            ws.cell(row=row, column=2).value = f'[Image not available: {path}]'
+            row += 3
 
 
 # ---------------------------------------------------------------------------
@@ -772,65 +978,78 @@ def write_excel(
     wb.remove(wb.active)
 
     sheet_names = {
-        "J": "Table of Contents",
-        "L": "Variable Definitions",
-        "K": "Cleaned Data",
-        "A": "Correlations",
-        "B": "Effect of Tone",
-        "C": "AI Perception Regressions",
-        "D": "Predictors Feedback Quality",
-        "E": "Predictors Chatbot Evaluation",
-        "F": "Mediation Analyses",
-        "G": "GPT Scoring",
-        "H": "Word Frequencies",
-        "I": "Demographics Robustness",
+        'J': 'Table of Contents',
+        'L': 'Variable Definitions',
+        'K': 'Cleaned Data',
+        'A': 'Correlations',
+        'B': 'Effect of Tone',
+        'C': 'AI Perception Regressions',
+        'D': 'Predictors Feedback Quality',
+        'E': 'Predictors Chatbot Evaluation',
+        'F': 'Mediation Analyses',
+        'G': 'GPT Scoring',
+        'H': 'Word Frequencies',
+        'I': 'Demographics Robustness',
     }
 
+    # Main sheets
     for key in sheet_order:
         if key not in results:
-            log.warning(f"Sheet {key}: no data — skipped.")
+            log.warning(f'Sheet {key}: no data — skipped.')
             continue
 
         name = sheet_names.get(key, key)
         ws   = wb.create_sheet(title=name)
         data = results[key]
-        log.info(f"Writing: {name}")
+        log.info(f'Writing: {name}')
 
-        if key == "J":
+        if key == 'J':
             _write_sheet_toc(ws, data)
-        elif key == "L":
+        elif key == 'L':
             _write_sheet_l(ws, data)
-        elif key == "K":
+        elif key == 'K':
             _write_sheet_k(ws, data)
-        elif key == "A":
+        elif key == 'A':
             _write_sheet_a(ws, data if isinstance(data, dict) else {})
-        elif key == "B":
+        elif key == 'B':
             _write_sheet_b(ws, data if isinstance(data, dict) else {})
-        elif key == "C":
+        elif key == 'C':
             _write_sheet_c(ws, data if isinstance(data, dict) else {})
-        elif key == "D":
+        elif key == 'D':
             _write_sheet_d(ws, data if isinstance(data, dict) else {})
-        elif key == "E":
+        elif key == 'E':
             _write_sheet_e(ws, data if isinstance(data, dict) else {})
-        elif key == "F":
+        elif key == 'F':
             _write_sheet_f(ws, data if isinstance(data, dict) else {})
-        elif key == "G":
+        elif key == 'G':
             _write_sheet_g(ws, data)
-        elif key == "H":
+        elif key == 'H':
             _write_sheet_h(ws, data if isinstance(data, dict) else {})
-        elif key == "I":
+        elif key == 'I':
             _write_sheet_i(ws, data if isinstance(data, dict) else {})
         else:
             if isinstance(data, pd.DataFrame):
                 _write_df(ws, data, start_row=1)
             else:
-                ws.cell(row=1, column=1).value = f"No handler for {key}."
+                ws.cell(row=1, column=1).value = f'No handler for {key}.'
 
         _autofit(ws)
 
+    # Supplementary Analyses (after main sheets)
+    if results.get('supp'):
+        ws_supp = wb.create_sheet(title='Supplementary Analyses')
+        _write_sheet_supplementary(ws_supp, results['supp'])
+        log.info('Written: Supplementary Analyses')
+
+    # Figures
+    if results.get('figures'):
+        ws_fig = wb.create_sheet(title='Figures')
+        _write_sheet_figures(ws_fig, results['figures'])
+        log.info('Written: Figures')
+
     try:
         wb.save(output_path)
-        log.info(f"Saved: {output_path}")
+        log.info(f'Saved: {output_path}')
     except Exception as e:
-        log.error(f"Failed to save: {e}")
+        log.error(f'Failed to save: {e}')
         raise
