@@ -964,18 +964,7 @@ def run_sheet_f(df: pd.DataFrame) -> dict:
     )
     return {"recap": recap, "full": full}
 
-    # ------------------------------------------------------------------
-    # Add Series label for readability
-    # ------------------------------------------------------------------
-    full["Series_label"] = full["Series"].map({
-        "1": "Series 1 — Tone as IV",
-        "2": "Series 2 — AI Perceptions as IV",
-    })
-
-    recap = _make_recap(full)
-    log.info(f"Sheet F: {len(full)} models completed.")
-    return {"recap": recap, "full": full}
-
+   
 
 # ---------------------------------------------------------------------------
 # Sheet I — Demographics & robustness
