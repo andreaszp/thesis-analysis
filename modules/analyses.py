@@ -35,7 +35,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 # Variable labels — used in Sheet I for readable output
 # ---------------------------------------------------------------------------
 PREDICTOR_LABELS: dict = {
-    "tone":             "Chatbot Tone (0=Pro / 1=Friendly)",
+    "tone":             "Chatbot Tone (0=Formal / 1=Casual)",
     "PM_score":         "Perceived Manipulation (composite)",
     "PM1":              "PM — threat to freedom",
     "PM2":              "PM — decision override",
@@ -319,9 +319,9 @@ def run_sheet_b(df: pd.DataFrame) -> dict:
         "engagement_score":"Engagement score",
     }
 
-    # FL_21 = friendly (tone=1), FL_22 = professional (tone=0)
-    friendly = df[df["tone"] == 1]
-    pro      = df[df["tone"] == 0]
+    # FL_21 = friendly (tone=1), FL_22 = formal (tone=0)
+    casual = df[df["tone"] == 1]
+    formal      = df[df["tone"] == 0]
     results  = {}
     all_rows = []
 
@@ -330,8 +330,8 @@ def run_sheet_b(df: pd.DataFrame) -> dict:
         for var in block_info["vars"]:
             if var not in df.columns:
                 continue
-            g1 = friendly[var].dropna()
-            g2 = pro[var].dropna()
+            g1 = casual[var].dropna()
+            g2 = formal[var].dropna()
             if len(g1) < 3 or len(g2) < 3:
                 continue
 
@@ -1063,16 +1063,16 @@ def run_sheet_i(df: pd.DataFrame) -> dict:
     rand_rows = []
 
     # Chi-square: tone balance
-    n_friendly = (df["tone"] == 1).sum()
-    n_pro      = (df["tone"] == 0).sum()
+    n_casual = (df["tone"] == 1).sum()
+    n_formal      = (df["tone"] == 0).sum()
     chi2_balance, p_balance = stats.chisquare(
-        [n_friendly, n_pro],
+        [n_casual, n_formal],
         [n_total/2, n_total/2]
     )
     rand_rows.append({
         "Test":           "Chi-square: tone condition balance",
-        "Group 1":        f"Friendly (n={n_friendly})",
-        "Group 2":        f"Professional (n={n_pro})",
+        "Group 1":        f"Casual (n={n_casual})",
+        "Group 2":        f"Formal (n={n_formal})",
         "Statistic":      round(chi2_balance, 3),
         "p":              round(p_balance, 4),
         "Sig.":           _sig_label(p_balance),
@@ -1082,14 +1082,14 @@ def run_sheet_i(df: pd.DataFrame) -> dict:
     })
 
     # t-test: age by condition
-    age_friendly = df[df["tone"]==1]["age"].dropna()
-    age_pro      = df[df["tone"]==0]["age"].dropna()
-    if len(age_friendly) > 2 and len(age_pro) > 2:
-        t_age, p_age = stats.ttest_ind(age_friendly, age_pro, equal_var=False)
+    age_casual = df[df["tone"]==1]["age"].dropna()
+    age_formal      = df[df["tone"]==0]["age"].dropna()
+    if len(age_casual) > 2 and len(age_formal) > 2:
+        t_age, p_age = stats.ttest_ind(age_casual, age_formal, equal_var=False)
         rand_rows.append({
             "Test":           "t-test: age by condition",
-            "Group 1":        f"Friendly M={age_friendly.mean():.1f}",
-            "Group 2":        f"Professional M={age_pro.mean():.1f}",
+            "Group 1":        f"Casual M={age_friendly.mean():.1f}",
+            "Group 2":        f"Formal M={age_pro.mean():.1f}",
             "Statistic":      round(t_age, 3),
             "p":              round(p_age, 4),
             "Sig.":           _sig_label(p_age),
@@ -1125,7 +1125,7 @@ def run_sheet_i(df: pd.DataFrame) -> dict:
             rand_rows.append({
                 "Test":           "Chi-square: gender × tone",
                 "Group 1":        "Male/Female/Other",
-                "Group 2":        "Friendly vs Professional",
+                "Group 2":        "Casual vs Formal",
                 "Statistic":      round(chi2_gen, 3),
                 "p":              round(p_gen, 4),
                 "Sig.":           _sig_label(p_gen),
