@@ -517,7 +517,40 @@ def _write_sheet_a(ws, data: dict) -> None:
 
 
 def _write_sheet_b(ws, data: dict) -> None:
-    """Effect of Tone."""
+    """Effect of Tone — casual/formal, reordered columns."""
+
+    def _reorder_cols(df):
+        if df.empty or 'note' in df.columns:
+            return df
+        df = df.copy()
+        # Rename friendly/professional → casual/formal everywhere
+        rename_cols = {
+            'M Friendly': 'M Casual', 'SD Friendly': 'SD Casual',
+            'M Professional': 'M Formal', 'SD Professional': 'SD Formal',
+            'N Friendly': 'N Casual', 'N Professional': 'N Formal',
+            'Friendly': 'Casual', 'Professional': 'Formal',
+        }
+        df = df.rename(columns={
+            c: rename_cols[c] for c in df.columns if c in rename_cols
+        })
+        # Replace values in all string columns
+        df = df.replace({
+            'Friendly': 'Casual', 'Professional': 'Formal',
+            'friendly': 'casual', 'professional': 'formal',
+            'FL_21': 'Casual (FL_21)', 'FL_22': 'Formal (FL_22)',
+        })
+        # Reorder columns: Variable | Label | p | d | Sig. | N Casual | M Casual | SD Casual | N Formal | M Formal | SD Formal | Δ | U/t
+        preferred = [
+            'Variable', 'Label',
+            'p', "Cohen's d", 'Effect', 'Sig.',
+            'N Casual', 'M Casual', 'SD Casual',
+            'N Formal', 'M Formal', 'SD Formal',
+            'Δ (C-F)', 'U / t',
+        ]
+        existing = [c for c in preferred if c in df.columns]
+        remaining = [c for c in df.columns if c not in existing]
+        return df[existing + remaining]
+
     blocks = [
         ('recap',       'RECAP — Significant results only',       True),
         ('personality', 'Perceived Personality',                   False),
@@ -529,40 +562,32 @@ def _write_sheet_b(ws, data: dict) -> None:
     n_cols = max(
         len(v.columns) if isinstance(v, pd.DataFrame) and not v.empty else 1
         for v in data.values()
-    ) if data else 10
+    ) if data else 12
 
     row = 1
     for key, title, primary in blocks:
         row = _write_section(ws, row, title, n_cols, primary=primary)
-        row = _write_df(ws, data.get(key, pd.DataFrame()), row, color_p=True)
+        df_block = _reorder_cols(data.get(key, pd.DataFrame()))
+        row = _write_df(ws, df_block, row, color_p=True)
     _autofit(ws)
 
 
 def _write_sheet_c(ws, data: dict) -> None:
-    """AI Perception Regressions — with IV/DV labels."""
+    """AI Perception Regressions — no IV/DV label columns."""
     recap = data.get('recap', pd.DataFrame())
     full  = data.get('full',  pd.DataFrame())
 
-    def _add_labels(df):
+    def _clean(df):
         if df.empty or 'note' in df.columns:
             return df
         df = df.copy()
-        if 'IV' in df.columns:
-            df['IV_clean'] = df['IV'].str.replace(
-                r'\s*\(H4\)', '', regex=True).str.strip()
-            idx = df.columns.get_loc('IV') + 1
-            df.insert(idx, 'IV Label',
-                      df['IV_clean'].map(IV_LABELS).fillna(df['IV_clean']))
-        if 'DV' in df.columns:
-            idx = df.columns.get_loc('DV') + 1
-            df.insert(idx, 'DV Label',
-                      df['DV'].map(DV_LABELS_REGRESSION).fillna(df['DV']))
-        return df.drop(
-            columns=[c for c in ['Scale','IV_clean'] if c in df.columns]
-        )
+        # Remove label columns
+        drop = [c for c in ['IV Label', 'DV Label', 'Scale', 'IV_clean']
+                if c in df.columns]
+        return df.drop(columns=drop)
 
-    recap  = _add_labels(recap)
-    full   = _add_labels(full)
+    recap  = _clean(recap)
+    full   = _clean(full)
     n_cols = max(
         len(full.columns)  if not full.empty  else 1,
         len(recap.columns) if not recap.empty else 1,
@@ -640,7 +665,7 @@ def _write_sheet_e(ws, data: dict) -> None:
 
 
 def _write_sheet_f(ws, data: dict) -> None:
-    """Mediation Analyses — subtables per mediator."""
+    """Mediation Analyses — reordered columns, casual/formal labels."""
     full  = data.get('full',  pd.DataFrame())
     recap = data.get('recap', pd.DataFrame())
 
@@ -650,6 +675,29 @@ def _write_sheet_f(ws, data: dict) -> None:
         )
         return
 
+    def _reorder_med(df):
+        if df.empty or 'note' in df.columns:
+            return df
+        df = df.copy()
+        # Replace friendly/professional labels
+        df = df.replace({
+            'friendly': 'casual', 'professional': 'formal',
+            'Friendly': 'Casual', 'Professional': 'Formal',
+        })
+        # Reorder: Series | IV | Mediator | DV | Mediation_type | Sig. | n | rest
+        priority = ['Series', 'IV', 'Mediator', 'DV',
+                    'Mediation_type', 'Sig.', 'n',
+                    'a', 'p_a', 'b', 'p_b',
+                    'c', 'p_c', 'c_prime', 'p_cprime',
+                    'Indirect', 'CI_low', 'CI_high',
+                    'Type', 'r_IV_M', 'r_IV_DV', 'r_M_DV',
+                    'Multicollinearity']
+        existing  = [c for c in priority if c in df.columns]
+        remaining = [c for c in df.columns if c not in existing]
+        return df[existing + remaining]
+
+    full  = _reorder_med(full)
+    recap = _reorder_med(recap)
     n_cols = len(full.columns)
     row    = 1
 
