@@ -532,8 +532,8 @@ def fig_path_pm_outcomes(df: pd.DataFrame, results: dict) -> str:
             sub = src[src['DV'] == dv]
             if sub.empty:
                 continue
-            last_bloc = sub['Bloc'].max()
-            sub_last  = sub[sub['Bloc'] == last_bloc]
+            last_bloc = sub['Block'].max()
+            sub_last  = sub[sub['Block'] == last_bloc]
             pm_row    = sub_last[sub_last['Predictor'] == 'PM_score']
             if not pm_row.empty:
                 betas[dv] = {
@@ -776,8 +776,8 @@ def fig_annex_evaluation_predictors(df: pd.DataFrame,
         if not full_e.empty:
             for dv in dvs:
                 sub       = full_e[full_e['DV'] == dv]
-                last_bloc = sub['Bloc'].max()
-                sub_last  = sub[sub['Bloc'] == last_bloc].set_index('Predictor')
+                last_bloc = sub['Block'].max()
+                sub_last  = sub[sub['Block'] == last_bloc].set_index('Predictor')
                 for pred in pred_order:
                     if pred in sub_last.index:
                         betas[dv][pred]  = float(sub_last.loc[pred, 'β'])
