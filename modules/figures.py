@@ -32,10 +32,13 @@ COL_NEG    = '#C0392B'
 
 STYLE = {
     'font.family':       'sans-serif',
-    'font.size':         11,
+    'font.size':         12,
     'axes.titlesize':    13,
     'axes.titleweight':  'bold',
-    'axes.labelsize':    11,
+    'axes.labelsize':    12,
+    'xtick.labelsize':   11,
+    'ytick.labelsize':   11,
+    'legend.fontsize':   11,
     'axes.spines.top':   False,
     'axes.spines.right': False,
     'axes.grid':         True,
@@ -89,17 +92,17 @@ def fig_gpt_reliability(df: pd.DataFrame) -> str:
     ]
     pairs = [(1, 2), (1, 3), (2, 3)]
 
-    fig, axes = plt.subplots(3, 3, figsize=(13, 12))
+    fig, axes = plt.subplots(3, 3, figsize=(16, 15))
     fig.suptitle(
         'GPT-4o Scoring Reliability Across Three Independent Runs',
-        fontsize=14, fontweight='bold', y=1.01
+        fontsize=15, fontweight='bold', y=1.01
     )
 
     for row_idx, (var, var_label) in enumerate(variables):
         for col_idx, (r1, r2) in enumerate(pairs):
-            ax  = axes[row_idx, col_idx]
-            c1  = f'{var}_run{r1}'
-            c2  = f'{var}_run{r2}'
+            ax = axes[row_idx, col_idx]
+            c1 = f'{var}_run{r1}'
+            c2 = f'{var}_run{r2}'
             if c1 not in df.columns or c2 not in df.columns:
                 ax.text(.5, .5, 'No data', ha='center', va='center',
                         transform=ax.transAxes)
@@ -109,13 +112,12 @@ def fig_gpt_reliability(df: pd.DataFrame) -> str:
             y = df[c2].reindex(x.index).dropna()
             x = x.reindex(y.index)
 
-            r, p = stats.pearsonr(x, y)
-            r2   = r ** 2
+            r, p   = stats.pearsonr(x, y)
+            r2_val = r ** 2
 
             ax.scatter(x, y, alpha=0.45, s=30,
                        color=COL_CASUAL, edgecolors='none')
 
-            # y = x reference line
             lims = [min(x.min(), y.min()) - 0.1,
                     max(x.max(), y.max()) + 0.1]
             ax.plot(lims, lims, '--', color='#BDC3C7', linewidth=1.2)
@@ -123,24 +125,23 @@ def fig_gpt_reliability(df: pd.DataFrame) -> str:
             ax.set_ylim(lims)
 
             ax.text(0.05, 0.93,
-                    f'r = {r:.3f}\nR² = {r2:.3f}',
-                    transform=ax.transAxes, fontsize=10,
+                    f'r = {r:.3f}\nR² = {r2_val:.3f}',
+                    transform=ax.transAxes, fontsize=11,
                     verticalalignment='top',
                     bbox=dict(boxstyle='round,pad=0.3',
                               facecolor='white', alpha=0.8,
                               edgecolor='#CCCCCC'))
 
-            ax.set_xlabel(f'Run {r1}', fontsize=10)
-            ax.set_ylabel(f'Run {r2}', fontsize=10)
+            ax.set_xlabel(f'Run {r1}', fontsize=12)
+            ax.set_ylabel(f'Run {r2}', fontsize=12)
             ax.set_title(
-                f'{var_label}\nRun {r1} vs Run {r2}',
-                fontsize=10, fontweight='bold'
+                f'{var_label} — Run {r1} vs Run {r2}',
+                fontsize=13, fontweight='bold'
             )
 
     plt.tight_layout()
     return _save(fig, 'fig_gpt_reliability')
-
-
+    
 # ---------------------------------------------------------------------------
 # Figure 1B — Effect of Tone on Perceived Personality
 # ---------------------------------------------------------------------------
@@ -204,18 +205,18 @@ def fig_tone_personality(df: pd.DataFrame) -> str:
 # ---------------------------------------------------------------------------
 def fig_tone_ai_perceptions(df: pd.DataFrame) -> str:
     block1 = [
-        ('PM1', 'PM1\n(freedom)'),
-        ('PM2', 'PM2\n(override)'),
-        ('PM3', 'PM3\n(manip.)'),
-        ('PM4', 'PM4\n(pressure)'),
+        ('PM1',      'PM1\n(freedom)'),
+        ('PM2',      'PM2\n(override)'),
+        ('PM3',      'PM3\n(manip.)'),
+        ('PM4',      'PM4\n(pressure)'),
         ('PM_score', 'PM\n(composite)'),
     ]
     block2 = [
         ('Comp_score', 'Competence'),
         ('Ind1',       'Autonomy\n(Ind1)'),
         ('Ind2',       'Autonomy\n(Ind2)'),
-        ('MA1',        'Moral\ngravity\n(MA1)'),
-        ('MA2',        'Moral\nresp.\n(MA2)'),
+        ('MA1',        'Moral\nGravity\n(MA1)'),
+        ('MA2',        'Moral\nResp.\n(MA2)'),
         ('MP_score',   'Moral\nPatiency'),
     ]
     all_vars = block1 + block2
@@ -223,223 +224,221 @@ def fig_tone_ai_perceptions(df: pd.DataFrame) -> str:
     cas = df[df['tone'] == 1]
     pro = df[df['tone'] == 0]
 
-    means_c, means_f, sems_c, sems_f = [], [], [], []
-    sigs, sig_mask = [], []
+    means_c, means_f, sems_c, sems_f, sigs, sig_mask = [], [], [], [], [], []
 
     for var, _ in all_vars:
+        if var not in df.columns:
+            means_c.append(0); means_f.append(0)
+            sems_c.append(0);  sems_f.append(0)
+            sigs.append(1.0);  sig_mask.append(False)
+            continue
         c = cas[var].dropna()
         f = pro[var].dropna()
-        means_c.append(c.mean())
-        means_f.append(f.mean())
-        sems_c.append(c.sem())
-        sems_f.append(f.sem())
+        means_c.append(c.mean()); means_f.append(f.mean())
+        sems_c.append(c.sem());   sems_f.append(f.sem())
         _, p = stats.mannwhitneyu(c, f, alternative='two-sided')
-        sigs.append(p)
-        sig_mask.append(p < .05)
+        sigs.append(p); sig_mask.append(p < .05)
 
     x     = np.arange(len(all_vars))
     width = 0.35
-    fig, ax = plt.subplots(figsize=(13, 5.5))
+    fig, ax = plt.subplots(figsize=(15, 6))
 
     for i in range(len(all_vars)):
-        alpha_c = 0.85 if sig_mask[i] else 0.3
-        alpha_f = 0.85 if sig_mask[i] else 0.3
-        col_c   = COL_CASUAL if sig_mask[i] else '#999999'
-        col_f   = COL_FORMAL if sig_mask[i] else '#999999'
+        col_c = COL_CASUAL if sig_mask[i] else '#999999'
+        col_f = COL_FORMAL if sig_mask[i] else '#999999'
+        alpha = 0.85 if sig_mask[i] else 0.35
 
         ax.bar(x[i] - width/2, means_c[i], width,
-               color=col_c, alpha=alpha_c,
-               yerr=sems_c[i], capsize=3)
+               color=col_c, alpha=alpha, yerr=sems_c[i], capsize=3)
         ax.bar(x[i] + width/2, means_f[i], width,
-               color=col_f, alpha=alpha_f,
-               yerr=sems_f[i], capsize=3)
+               color=col_f, alpha=alpha, yerr=sems_f[i], capsize=3)
 
         s   = _sig(sigs[i])
-        y   = max(means_c[i]+sems_c[i], means_f[i]+sems_f[i]) + 0.12
+        y   = max(means_c[i]+sems_c[i], means_f[i]+sems_f[i]) + 0.15
         col = COL_SIG if sig_mask[i] else COL_NS
-        ax.text(i, y, s, ha='center', fontsize=10,
+        ax.text(i, y, s, ha='center', fontsize=11,
                 color=col, fontweight='bold')
 
-    # Divider between blocks
+    # Divider
     ax.axvline(x=len(block1) - 0.5, color='#BDC3C7',
                linestyle='--', linewidth=1.2)
-    ax.text(len(block1)/2 - 0.5, 0.3,
+    ax.text(len(block1)/2 - 0.5, 6.7,
             'Perceived Manipulation', ha='center',
-            fontsize=9, color='#7F8C8D', style='italic')
-    ax.text(len(block1) + len(block2)/2 - 0.5, 0.3,
+            fontsize=10, color='#7F8C8D', style='italic')
+    ax.text(len(block1) + len(block2)/2 - 0.5, 6.7,
             'Other AI Perceptions', ha='center',
-            fontsize=9, color='#7F8C8D', style='italic')
+            fontsize=10, color='#7F8C8D', style='italic')
 
     ax.set_xticks(x)
-    ax.set_xticklabels([v[1] for v in all_vars], fontsize=9)
-    ax.set_ylabel('Mean score (1–7)', fontsize=11)
-    ax.set_ylim(0, 8)
+    ax.set_xticklabels([v[1] for v in all_vars],
+                       fontsize=10, rotation=0)
+    ax.set_ylabel('Mean score (1–7)', fontsize=12)
+    ax.set_ylim(0, 7.5)  # max = 7
     ax.set_title('Effect of Chatbot Tone on Cognitive AI Perceptions',
-                 fontsize=13, fontweight='bold', pad=12)
+                 fontsize=15, fontweight='bold', pad=14)
 
     legend = [
-        mpatches.Patch(color=COL_CASUAL, alpha=0.85, label='Casual (significant)'),
-        mpatches.Patch(color=COL_FORMAL, alpha=0.85, label='Formal (significant)'),
-        mpatches.Patch(color='#999999', alpha=0.35, label='Not significant'),
+        mpatches.Patch(color=COL_CASUAL, alpha=0.85,
+                       label='Casual (significant)'),
+        mpatches.Patch(color=COL_FORMAL, alpha=0.85,
+                       label='Formal (significant)'),
+        mpatches.Patch(color='#999999', alpha=0.4,
+                       label='Not significant'),
     ]
-    ax.legend(handles=legend, framealpha=0.9, fontsize=9)
+    ax.legend(handles=legend, framealpha=0.9, fontsize=11)
     ax.set_axisbelow(True)
     return _save(fig, 'fig_tone_ai_perceptions')
-
-
+    
 # ---------------------------------------------------------------------------
 # Figure 2B — Path Diagram: Tone → PP → PM
 # ---------------------------------------------------------------------------
 def fig_path_tone_pp_pm(df: pd.DataFrame, results: dict) -> str:
-    # Calculate paths from data
     paths = {}
     for pp in ['PP1', 'PP3', 'PP4']:
         if pp not in df.columns:
             continue
-        # a: tone → PP
-        m_a   = smf.ols(f'{pp} ~ tone', data=df).fit()
-        a     = round(m_a.params['tone'], 3)
-        p_a   = m_a.pvalues['tone']
-        # b: PP → PM controlling tone
-        m_b   = smf.ols(f'PM_score ~ tone + {pp}', data=df).fit()
-        b     = round(m_b.params[pp], 3)
-        p_b   = m_b.pvalues[pp]
+        m_a  = smf.ols(f'{pp} ~ tone', data=df).fit()
+        a    = round(m_a.params['tone'], 3)
+        p_a  = m_a.pvalues['tone']
+        m_b  = smf.ols(f'PM_score ~ tone + {pp}', data=df).fit()
+        b    = round(m_b.params[pp], 3)
+        p_b  = m_b.pvalues[pp]
         paths[pp] = {'a': a, 'p_a': p_a, 'b': b, 'p_b': p_b}
 
-    # Indirect effects from results
     indirects = {}
     try:
-        supp = results.get('supp', {})
+        supp   = results.get('supp', {})
         pp_med = supp.get('pp_pm_mediations', pd.DataFrame())
         if not pp_med.empty:
             for _, row in pp_med.iterrows():
                 for pp in ['PP1', 'PP3', 'PP4']:
                     if pp in str(row.get('Path', '')):
                         indirects[pp] = {
-                            'ind': row.get('Indirect', '—'),
-                            'ci_low': row.get('CI_low', '—'),
-                            'ci_high': row.get('CI_high', '—'),
+                            'ind':      row.get('Indirect', '—'),
+                            'ci_low':   row.get('CI_low',   '—'),
+                            'ci_high':  row.get('CI_high',  '—'),
                         }
     except Exception:
         pass
 
-    # Direct effect tone → PM
-    m_dir = smf.ols('PM_score ~ tone', data=df).fit()
-    c_tot = round(m_dir.params['tone'], 3)
-    p_tot = m_dir.pvalues['tone']
-
-    m_dir2 = smf.ols(
-        'PM_score ~ tone + PP1 + PP3 + PP4', data=df
-    ).fit()
+    m_dir2  = smf.ols('PM_score ~ tone + PP1 + PP3 + PP4', data=df).fit()
     c_prime = round(m_dir2.params['tone'], 3)
     p_prime = m_dir2.pvalues['tone']
 
-    fig, ax = plt.subplots(figsize=(13, 7))
-    ax.set_xlim(0, 13)
-    ax.set_ylim(0, 7)
+    fig, ax = plt.subplots(figsize=(14, 8))
+    ax.set_xlim(0, 14)
+    ax.set_ylim(0, 8)
     ax.axis('off')
     fig.patch.set_facecolor('white')
 
-    def _box(x, y, w, h, text, color, fontsize=10):
+    def _box(x, y, w, h, text, color, fontsize=11):
         rect = plt.Rectangle((x-w/2, y-h/2), w, h,
                                facecolor=color, edgecolor='white',
                                linewidth=2, zorder=3)
         ax.add_patch(rect)
         ax.text(x, y, text, ha='center', va='center',
                 fontsize=fontsize, color='white',
-                fontweight='bold', zorder=4, multialignment='center')
+                fontweight='bold', zorder=4,
+                multialignment='center')
 
-    def _arrow(x1, y1, x2, y2, label='', color='#2C3E50',
-               curved=False, rad=0.0):
-        style = f'arc3,rad={rad}' if curved else 'arc3,rad=0'
+    def _arrow(x1, y1, x2, y2, label='', color='#2C3E50'):
         ax.annotate('', xy=(x2, y2), xytext=(x1, y1),
                     arrowprops=dict(
-                        arrowstyle='->', color=color, lw=1.8,
-                        connectionstyle=style
+                        arrowstyle='->', color=color, lw=2.0,
+                        connectionstyle='arc3,rad=0'
                     ), zorder=2)
         if label:
-            mx = (x1+x2)/2 + (rad * 0.8 if curved else 0)
-            my = (y1+y2)/2 + 0.18
+            mx = (x1+x2)/2
+            my = (y1+y2)/2 + 0.2
             ax.text(mx, my, label, ha='center', va='bottom',
-                    fontsize=9, color=color, fontweight='bold',
-                    bbox=dict(boxstyle='round,pad=0.2', facecolor='white',
-                              alpha=0.85, edgecolor='none'))
+                    fontsize=12, color=color, fontweight='bold',
+                    bbox=dict(boxstyle='round,pad=0.25',
+                              facecolor='white', alpha=0.85,
+                              edgecolor='none'))
 
-    # Boxes
-    _box(1.5, 3.5, 2.2, 1.2,
-         'Chatbot\nTone\n(Casual/Formal)', COL_CASUAL)
+    _box(1.5, 4.0, 2.4, 1.3,
+         'Chatbot\nTone\n(Casual/Formal)', COL_CASUAL, fontsize=11)
 
-    pp_positions = [(5.5, 5.8), (5.5, 3.5), (5.5, 1.2)]
+    pp_positions = [(5.5, 6.5), (5.5, 4.0), (5.5, 1.5)]
     pp_labels    = [
         ('PP1', 'Friendly\n(PP1)'),
         ('PP3', 'Approachable\n(PP3)'),
         ('PP4', 'Warm\n(PP4)'),
     ]
     for (px, py), (pp, pp_label) in zip(pp_positions, pp_labels):
-        _box(px, py, 2.2, 0.9, pp_label, '#2980B9', fontsize=9)
+        _box(px, py, 2.4, 1.0, pp_label, '#2980B9', fontsize=10)
 
-    _box(10.5, 3.5, 2.2, 1.2,
-         'Perceived\nManipulation\n(PM_score)', COL_NEG)
+    _box(10.5, 4.0, 2.4, 1.3,
+         'Perceived\nManipulation\n(PM_score)', COL_NEG, fontsize=11)
 
-    # Arrows tone → PP
     for (px, py), (pp, _) in zip(pp_positions, pp_labels):
         if pp in paths:
             a     = paths[pp]['a']
             p_val = paths[pp]['p_a']
-            label = f'a={a}{_sig(p_val)}'
-            _arrow(2.6, 3.5, px-1.1, py, label, COL_CASUAL)
+            _arrow(2.7, 4.0, px-1.2, py,
+                   f'a={a}{_sig(p_val)}', COL_CASUAL)
 
-    # Arrows PP → PM
     for (px, py), (pp, _) in zip(pp_positions, pp_labels):
         if pp in paths:
             b     = paths[pp]['b']
             p_val = paths[pp]['p_b']
-            label = f'b={b}{_sig(p_val)}'
-            _arrow(px+1.1, py, 9.4, 3.5, label, '#2980B9')
+            _arrow(px+1.2, py, 9.3, 4.0,
+                   f'b={b}{_sig(p_val)}', '#2980B9')
 
-    # Direct path tone → PM (dashed)
-    ax.annotate('', xy=(9.4, 3.2), xytext=(2.6, 3.2),
+    ax.annotate('', xy=(9.3, 3.5), xytext=(2.7, 3.5),
                 arrowprops=dict(
                     arrowstyle='->', color='#BDC3C7',
                     lw=1.5, linestyle='dashed',
-                    connectionstyle='arc3,rad=-0.4'
+                    connectionstyle='arc3,rad=-0.35'
                 ), zorder=2)
     sig_str = _sig(p_prime)
-    ax.text(6.0, 1.9,
-            f"c' (direct) = {c_prime} {sig_str if sig_str != 'ns' else '(ns)'}",
-            ha='center', fontsize=9, color='#95A5A6', style='italic')
+    ax.text(6.0, 2.2,
+            f"c' (direct) = {c_prime} "
+            f"{'(ns)' if sig_str == 'ns' else sig_str}",
+            ha='center', fontsize=11, color='#95A5A6', style='italic')
 
     # Indirect effects box
     ind_lines = []
-    for pp, pp_label in [('PP1','Friendly'), ('PP3','Approachable'), ('PP4','Warm')]:
+    for pp, pp_label in [
+        ('PP1','Friendly'), ('PP3','Approachable'), ('PP4','Warm')
+    ]:
         if pp in indirects:
             d = indirects[pp]
-            ind_lines.append(
-                f"via {pp_label}: indirect={d['ind']:.3f}, "
-                f"CI[{d['ci_low']:.3f}, {d['ci_high']:.3f}]"
-            )
+            try:
+                ind_lines.append(
+                    f"via {pp_label}: "
+                    f"indirect={float(d['ind']):.3f}, "
+                    f"CI[{float(d['ci_low']):.3f}, "
+                    f"{float(d['ci_high']):.3f}]"
+                )
+            except Exception:
+                ind_lines.append(f"via {pp_label}: {d}")
+
     if ind_lines:
-        rect = plt.Rectangle((1, 0.1), 11, 0.85,
+        rect = plt.Rectangle((1.0, 0.15), 12.0, 1.0,
                                facecolor='#FDFEFE',
                                edgecolor='#BDC3C7', linewidth=1)
         ax.add_patch(rect)
-        ax.text(6.5, 0.72,
+        ax.text(7.0, 0.95,
                 'Indirect effects (bootstrapped, 5,000 iter.):',
-                ha='center', fontsize=8.5, fontweight='bold',
-                color='#2C3E50')
-        ax.text(6.5, 0.35,
+                ha='center', fontsize=11,
+                fontweight='bold', color='#2C3E50')
+        ax.text(7.0, 0.45,
                 '  |  '.join(ind_lines),
-                ha='center', fontsize=8, color='#2C3E50')
+                ha='center', fontsize=11, color='#2C3E50')
+
+    ax.text(7.0, -0.2,
+            'Paths represent separate bootstrapped mediation '
+            'analyses, not a single structural model.',
+            ha='center', fontsize=10,
+            color='#888888', style='italic')
 
     ax.set_title(
         'Mediation Model: Chatbot Tone → Perceived Personality '
-        '→ Perceived Manipulation\n'
-        'Paths represent separate bootstrapped mediation analyses, '
-        'not a single structural model.',
-        fontsize=11, pad=15
+        '→ Perceived Manipulation',
+        fontsize=15, pad=16
     )
     return _save(fig, 'fig_path_tone_pp_pm')
-
 
 # ---------------------------------------------------------------------------
 # Figure 3 — Distribution of Feedback Quality by Tone
@@ -512,7 +511,6 @@ def fig_quality_distribution(df: pd.DataFrame) -> str:
 # Figure 4 — Path Diagram: PM → Feedback Quality and Evaluation
 # ---------------------------------------------------------------------------
 def fig_path_pm_outcomes(df: pd.DataFrame, results: dict) -> str:
-    # Extract betas from regression results
     outcomes = {
         'composite': {'dv': 'Feedback Quality\n(composite)', 'color': COL_SIG},
         'E3':        {'dv': 'Appreciation\n(E3)',            'color': COL_CASUAL},
@@ -524,14 +522,11 @@ def fig_path_pm_outcomes(df: pd.DataFrame, results: dict) -> str:
     try:
         full_d = results.get('D', {}).get('full', pd.DataFrame())
         full_e = results.get('E', {}).get('full', pd.DataFrame())
-
         for dv, info in outcomes.items():
             src = full_d if dv == 'composite' else full_e
             if src.empty or 'DV' not in src.columns:
                 continue
-            sub = src[src['DV'] == dv]
-            if sub.empty:
-                continue
+            sub       = src[src['DV'] == dv]
             last_bloc = sub['Block'].max()
             sub_last  = sub[sub['Block'] == last_bloc]
             pm_row    = sub_last[sub_last['Predictor'] == 'PM_score']
@@ -541,11 +536,10 @@ def fig_path_pm_outcomes(df: pd.DataFrame, results: dict) -> str:
                     'p':    float(pm_row['p'].values[0]),
                 }
     except Exception as e:
-        log.warning(f'Figure 4: could not extract betas: {e}')
+        log.warning(f'Figure PM→outcomes: {e}')
 
-    # Fallback
     fallback = {
-        'composite': {'beta': -.213, 'p': .014},
+        'composite': {'beta': -.177, 'p': .051},
         'E3':        {'beta': -.252, 'p': .010},
         'E4':        {'beta': -.299, 'p': .001},
         'E5':        {'beta': -.352, 'p': .001},
@@ -554,7 +548,6 @@ def fig_path_pm_outcomes(df: pd.DataFrame, results: dict) -> str:
         if dv not in betas:
             betas[dv] = fallback[dv]
 
-    # Indirect effects
     indirects = {}
     try:
         full_f = results.get('F', {}).get('full', pd.DataFrame())
@@ -568,98 +561,111 @@ def fig_path_pm_outcomes(df: pd.DataFrame, results: dict) -> str:
                 dv = row.get('DV', '')
                 if dv in outcomes:
                     indirects[dv] = {
-                        'ind':      round(float(row.get('Indirect', 0)), 3),
-                        'ci_low':   round(float(row.get('CI_low', 0)),   3),
-                        'ci_high':  round(float(row.get('CI_high', 0)),  3),
-                        'sig':      row.get('Sig.', 'ns'),
+                        'ind':     round(float(row.get('Indirect', 0)), 3),
+                        'ci_low':  round(float(row.get('CI_low',   0)), 3),
+                        'ci_high': round(float(row.get('CI_high',  0)), 3),
+                        'sig':     row.get('Sig.', 'ns'),
                     }
     except Exception as e:
-        log.warning(f'Figure 4 indirects: {e}')
+        log.warning(f'Figure PM→outcomes indirects: {e}')
 
-    fig, ax = plt.subplots(figsize=(13, 7))
-    ax.set_xlim(0, 13)
-    ax.set_ylim(0, 7)
+    fig, ax = plt.subplots(figsize=(14, 9))
+    ax.set_xlim(0, 14)
+    ax.set_ylim(0, 9)
     ax.axis('off')
     fig.patch.set_facecolor('white')
 
-    def _box(x, y, w, h, text, color, fontsize=10):
+    def _box(x, y, w, h, text, color, fontsize=11):
         rect = plt.Rectangle((x-w/2, y-h/2), w, h,
                                facecolor=color, edgecolor='white',
                                linewidth=2, zorder=3)
         ax.add_patch(rect)
         ax.text(x, y, text, ha='center', va='center',
                 fontsize=fontsize, color='white',
-                fontweight='bold', zorder=4, multialignment='center')
+                fontweight='bold', zorder=4,
+                multialignment='center')
 
     # PM box
-    _box(3.5, 3.5, 2.4, 1.4,
-         'Perceived\nManipulation\n(PM_score)', COL_NEG, fontsize=11)
+    _box(3.5, 5.5, 2.6, 1.5,
+         'Perceived\nManipulation\n(PM_score)', COL_NEG, fontsize=12)
 
-    # Outcome boxes
-    y_positions = [6.0, 4.5, 2.5, 1.0]
+    # Outcome boxes — well spaced, leaving room for indirect box at bottom
+    y_positions = [8.2, 6.8, 5.2, 3.8]
     for (dv, info), y_pos in zip(outcomes.items(), y_positions):
-        _box(10, y_pos, 2.8, 0.95, info['dv'], info['color'], fontsize=9)
+        _box(10.5, y_pos, 3.0, 1.0, info['dv'], info['color'], fontsize=10)
 
         if dv in betas:
             b     = betas[dv]['beta']
             p_val = betas[dv]['p']
-            label = f'β={b}{_sig(p_val)}'
+            sig_s = _sig(p_val)
+            label = f'β={b}{sig_s if sig_s != "ns" else " (ns)"}'
+
+            # Dashed arrow for composite (marginal ns)
+            linestyle = 'dashed' if dv == 'composite' else 'solid'
             ax.annotate(
-                '', xy=(8.6, y_pos), xytext=(4.7, 3.5),
+                '', xy=(9.0, y_pos), xytext=(4.8, 5.5),
                 arrowprops=dict(
-                    arrowstyle='->', color=COL_NEG, lw=1.8
+                    arrowstyle='->', color=COL_NEG,
+                    lw=1.8,
+                    linestyle=linestyle,
+                    connectionstyle='arc3,rad=0'
                 ), zorder=2
             )
-            ax.text(6.65, (3.5+y_pos)/2 + 0.12, label,
-                    ha='center', fontsize=9,
+            mx = (4.8 + 9.0)/2
+            my = (5.5 + y_pos)/2 + 0.15
+            ax.text(mx, my, label,
+                    ha='center', fontsize=11,
                     color=COL_NEG, fontweight='bold',
                     bbox=dict(boxstyle='round,pad=0.2',
                               facecolor='white', alpha=0.85,
                               edgecolor='none'))
 
-    # Indirect effects box
+    # Indirect effects box — clearly below all outcome boxes
     ind_lines = []
     for dv, info in outcomes.items():
         if dv in indirects:
             d = indirects[dv]
-            sig_str = '✓' if d['sig'] == '*' else ''
+            dv_label = info['dv'].replace('\n', ' ')
             ind_lines.append(
-                f"→ {info['dv'].replace(chr(10),' ')}: "
-                f"indirect={d['ind']}, CI[{d['ci_low']}, {d['ci_high']}] {sig_str}"
+                f"{dv_label}: indirect={d['ind']}, "
+                f"CI[{d['ci_low']}, {d['ci_high']}]"
             )
 
     if ind_lines:
-        rect = plt.Rectangle((0.3, 0.05), 12.4, 1.2,
+        rect = plt.Rectangle((0.5, 0.1), 13.0, 1.5,
                                facecolor='#FDFEFE',
                                edgecolor='#BDC3C7', linewidth=1)
         ax.add_patch(rect)
-        ax.text(6.5, 1.1,
+        ax.text(7.0, 1.45,
                 'Indirect effects of tone via PM_score '
-                '(bootstrapped, 5,000 iter.):',
-                ha='center', fontsize=8.5,
+                '(bootstrapped, 5,000 iter., CI excludes 0):',
+                ha='center', fontsize=11,
                 fontweight='bold', color='#2C3E50')
-        ax.text(6.5, 0.6,
+        ax.text(7.0, 0.95,
                 '  |  '.join(ind_lines[:2]),
-                ha='center', fontsize=7.5, color='#2C3E50')
+                ha='center', fontsize=10.5, color='#2C3E50')
         if len(ind_lines) > 2:
-            ax.text(6.5, 0.25,
+            ax.text(7.0, 0.45,
                     '  |  '.join(ind_lines[2:]),
-                    ha='center', fontsize=7.5, color='#2C3E50')
+                    ha='center', fontsize=10.5, color='#2C3E50')
 
-    ax.text(1.0, 6.3,
-            'Direct effect of tone on all\noutcomes: non-significant\n(full mediation)',
-            ha='center', fontsize=8.5, color='#95A5A6',
+    ax.text(1.5, 2.8,
+            'Direct effect of tone\non all outcomes: ns\n(full mediation)',
+            ha='center', fontsize=10, color='#95A5A6',
             style='italic', multialignment='center')
 
+    ax.text(7.0, -0.2,
+            'Direct effect of tone on all outcomes non-significant. '
+            'Paths represent separate bootstrapped analyses.',
+            ha='center', fontsize=10,
+            color='#888888', style='italic')
+
     ax.set_title(
-        'Perceived Manipulation as Central Predictor '
-        'of Feedback Quality and Chatbot Evaluation\n'
-        'Direct effect of tone non-significant — '
-        'paths represent separate analyses.',
-        fontsize=11, pad=15
+        'Perceived Manipulation as Central Predictor of '
+        'Feedback Quality and Chatbot Evaluation',
+        fontsize=15, pad=16
     )
     return _save(fig, 'fig_path_pm_outcomes')
-
 
 # ---------------------------------------------------------------------------
 # Figure 5 — Tone × Language Interaction on Engagement
@@ -752,7 +758,7 @@ def fig_tone_language_engagement(df: pd.DataFrame) -> str:
 def fig_annex_evaluation_predictors(df: pd.DataFrame,
                                      results: dict) -> str:
     dvs    = ['E3', 'E4', 'E5']
-    colors = [COL_CASUAL, COL_FORMAL, COL_SIG]
+    colors = [COL_CASUAL, '#6C3483', COL_FORMAL]
     labels = ['Appreciation (E3)', 'Utility (E4)', 'Reuse Intention (E5)']
 
     pred_order = [
@@ -760,11 +766,16 @@ def fig_annex_evaluation_predictors(df: pd.DataFrame,
         'MA1', 'MA2', 'MP_score', 'composite', 'E2',
     ]
     pred_labels = {
-        'tone':      'Tone', 'PM_score': 'PM',
-        'Comp_score':'Comp', 'Ind1': 'Ind1', 'Ind2': 'Ind2',
-        'MA1':       'MA1',  'MA2':  'MA2',
-        'MP_score':  'MP',   'composite': 'Quality',
-        'E2':        'Engagement\nfelt',
+        'tone':      'Tone',
+        'PM_score':  'Perceived\nManipulation',
+        'Comp_score':'Competence',
+        'Ind1':      'Autonomy\n(Ind1)',
+        'Ind2':      'Autonomy\n(Ind2)',
+        'MA1':       'Moral\nGravity (MA1)',
+        'MA2':       'AI Moral\nResp. (MA2)',
+        'MP_score':  'Moral\nPatiency',
+        'composite': 'Feedback\nQuality',
+        'E2':        'Engagement\nFelt (E2)',
     }
 
     betas  = {dv: {} for dv in dvs}
@@ -788,31 +799,37 @@ def fig_annex_evaluation_predictors(df: pd.DataFrame,
         log.warning(f'Annexe A: {e}')
 
     x     = np.arange(len(pred_order))
-    width = 0.25
-    fig, ax = plt.subplots(figsize=(13, 6))
+    width = 0.26
+    fig, ax = plt.subplots(figsize=(14, 6.5))
 
     for i, (dv, color, label) in enumerate(zip(dvs, colors, labels)):
-        vals = [betas[dv].get(p, 0) for p in pred_order]
-        ps   = [p_vals[dv].get(p, 1.0) for p in pred_order]
-
-        for j, (v, p) in enumerate(zip(vals, ps)):
+        for j, pred in enumerate(pred_order):
+            v = betas[dv].get(pred, None)
+            p = p_vals[dv].get(pred, 1.0)
+            if v is None:
+                continue
             bar_color = color if p < .05 else '#CCCCCC'
-            alpha     = 0.85 if p < .05 else 0.4
-            ax.bar(x[j] + (i-1)*width, v, width,
-                   color=bar_color, alpha=alpha,
-                   label=label if j == 0 else '')
+            alpha     = 0.85 if p < .05 else 0.35
+            bar = ax.bar(
+                x[j] + (i-1)*width, v, width,
+                color=bar_color, alpha=alpha,
+                label=label if j == 0 else ''
+            )
             if p < .05:
-                y = v + (0.01 if v >= 0 else -0.04)
-                ax.text(x[j] + (i-1)*width, y, _sig(p),
-                        ha='center', fontsize=8,
-                        color=color, fontweight='bold')
+                y_ann = v + (0.015 if v >= 0 else -0.045)
+                ax.text(
+                    x[j] + (i-1)*width, y_ann,
+                    _sig(p), ha='center', fontsize=9,
+                    color=color, fontweight='bold'
+                )
 
     ax.axhline(y=0, color='black', linewidth=0.8)
     ax.set_xticks(x)
     ax.set_xticklabels(
-        [pred_labels.get(p, p) for p in pred_order], fontsize=9.5
+        [pred_labels.get(p, p) for p in pred_order],
+        fontsize=10
     )
-    ax.set_ylabel('Standardised β coefficient', fontsize=11)
+    ax.set_ylabel('Standardised β coefficient', fontsize=12)
 
     r2_str = '  |  '.join(
         [f'R²({dv})={r2s[dv]}' for dv in dvs if dv in r2s]
@@ -820,13 +837,22 @@ def fig_annex_evaluation_predictors(df: pd.DataFrame,
     ax.set_title(
         'Predictors of Chatbot Evaluation: Standardised β Coefficients\n'
         f'{r2_str}',
-        fontsize=12, fontweight='bold', pad=12
+        fontsize=14, fontweight='bold', pad=12
     )
-    ax.legend(framealpha=0.9, fontsize=9)
+
+    # Legend with correct colors
+    handles = [
+        mpatches.Patch(color=colors[i], alpha=0.85, label=labels[i])
+        for i in range(len(dvs))
+    ]
+    handles.append(
+        mpatches.Patch(color='#CCCCCC', alpha=0.4, label='Not significant')
+    )
+    ax.legend(handles=handles, framealpha=0.9, fontsize=11,
+              loc='upper right')
     ax.set_axisbelow(True)
     return _save(fig, 'fig_annex_evaluation_predictors')
-
-
+                                         
 # ---------------------------------------------------------------------------
 # Annexe B — Bubble Plot: Perceived Personality × DVs
 # ---------------------------------------------------------------------------
@@ -929,8 +955,8 @@ def fig_annex_mediation_comp_aut(df: pd.DataFrame,
         'MP_score':   COL_SIG,
     }
 
-    # Extract from results
     med_data = {}
+    b_val, p_b = '—', 1.0
     try:
         full_f = results.get('F', {}).get('full', pd.DataFrame())
         if not full_f.empty:
@@ -948,82 +974,80 @@ def fig_annex_mediation_comp_aut(df: pd.DataFrame,
                         'indirect': round(float(r.get('Indirect', 0)), 3),
                         'ci_low':   round(float(r.get('CI_low', 0)), 3),
                         'ci_high':  round(float(r.get('CI_high', 0)), 3),
-                        'sig':      r.get('Sig.', 'ns'),
                     }
-        # b path (E3 → composite) — same for all
-        b_rows = full_f[
-            (full_f['Mediator'] == 'E3') &
-            (full_f['DV'] == 'composite') &
-            (full_f['IV'] == 'Comp_score')
-        ]
-        b_val = round(float(b_rows.iloc[0].get('b', 0)), 3) \
-                if not b_rows.empty else '—'
-        p_b   = float(b_rows.iloc[0].get('p_b', 1)) \
-                if not b_rows.empty else 1.0
+            b_rows = full_f[
+                (full_f['Mediator'] == 'E3') &
+                (full_f['DV'] == 'composite') &
+                (full_f['IV'] == 'Comp_score')
+            ]
+            if not b_rows.empty:
+                b_val = round(float(b_rows.iloc[0].get('b', 0)), 3)
+                p_b   = float(b_rows.iloc[0].get('p_b', 1))
     except Exception as e:
         log.warning(f'Annexe C: {e}')
-        b_val, p_b = '—', 1.0
 
-    fig, ax = plt.subplots(figsize=(12, 7))
-    ax.set_xlim(0, 12)
-    ax.set_ylim(0, 7)
+    # Taller figure to avoid overlap
+    fig, ax = plt.subplots(figsize=(13, 9))
+    ax.set_xlim(0, 13)
+    ax.set_ylim(0, 9)
     ax.axis('off')
     fig.patch.set_facecolor('white')
 
-    def _box(x, y, w, h, text, color, fontsize=9):
+    def _box(x, y, w, h, text, color, fontsize=10):
         rect = plt.Rectangle((x-w/2, y-h/2), w, h,
                                facecolor=color, edgecolor='white',
                                linewidth=2, zorder=3)
         ax.add_patch(rect)
         ax.text(x, y, text, ha='center', va='center',
                 fontsize=fontsize, color='white',
-                fontweight='bold', zorder=4, multialignment='center')
+                fontweight='bold', zorder=4,
+                multialignment='center')
 
-    # E3 mediator
-    _box(6, 5.5, 2.4, 1.0, 'Chatbot\nAppreciation\n(E3)',
-         COL_CASUAL, fontsize=10)
+    # Mediator and outcome — higher up to leave room for IV boxes and indirect box
+    _box(6.5, 7.5, 2.6, 1.0, 'Chatbot\nAppreciation\n(E3)',
+         COL_CASUAL, fontsize=11)
+    _box(11.5, 5.5, 2.4, 1.2, 'Feedback\nQuality\n(composite)',
+         COL_SIG, fontsize=11)
 
-    # Composite outcome
-    _box(10.5, 3.5, 2.2, 1.2, 'Feedback\nQuality\n(composite)',
-         COL_SIG, fontsize=10)
-
-    # b path E3 → composite
-    ax.annotate('', xy=(9.4, 3.7), xytext=(7.2, 5.1),
-                arrowprops=dict(arrowstyle='->', color=COL_CASUAL, lw=1.8))
-    ax.text(8.5, 4.6,
+    # b path
+    ax.annotate('', xy=(10.3, 5.8), xytext=(7.8, 7.1),
+                arrowprops=dict(arrowstyle='->', color=COL_CASUAL, lw=2.0))
+    ax.text(9.3, 6.7,
             f'b={b_val}{_sig(p_b)}',
-            ha='center', fontsize=9, color=COL_CASUAL, fontweight='bold',
-            bbox=dict(boxstyle='round,pad=0.2', facecolor='white',
+            ha='center', fontsize=12, color=COL_CASUAL, fontweight='bold',
+            bbox=dict(boxstyle='round,pad=0.25', facecolor='white',
                       alpha=0.85, edgecolor='none'))
 
-    # IV boxes and arrows
-    iv_y = [6.2, 3.5, 0.8]
-    for (iv, y_pos) in zip(ivs, iv_y):
+    # IV boxes — well spaced vertically
+    iv_y = [7.5, 5.5, 3.5]
+    for iv, y_pos in zip(ivs, iv_y):
         color = iv_colors.get(iv, '#555555')
-        _box(1.8, y_pos, 2.6, 0.95, iv_labels[iv], color, fontsize=9)
+        _box(1.8, y_pos, 2.8, 1.0, iv_labels[iv], color, fontsize=10)
 
         if iv in med_data:
-            d = med_data[iv]
+            d     = med_data[iv]
             label = f"a={d['a']}{_sig(d['p_a'])}"
-            ax.annotate('', xy=(4.8, 5.2), xytext=(3.1, y_pos+0.1),
-                        arrowprops=dict(arrowstyle='->', color=color, lw=1.6))
-            ax.text(3.9, (y_pos + 5.2)/2 + 0.1, label,
-                    ha='center', fontsize=8.5, color=color, fontweight='bold',
+            ax.annotate('', xy=(5.2, 7.2), xytext=(3.2, y_pos+0.1),
+                        arrowprops=dict(arrowstyle='->', color=color, lw=1.8))
+            mx = (1.8 + 6.5)/2
+            my = (y_pos + 7.5)/2 + 0.1
+            ax.text(mx, my, label,
+                    ha='center', fontsize=11, color=color, fontweight='bold',
                     bbox=dict(boxstyle='round,pad=0.2', facecolor='white',
                               alpha=0.85, edgecolor='none'))
 
-        # Direct path c' (dashed)
-        ax.annotate('', xy=(9.4, 3.3), xytext=(3.1, y_pos),
+        # Direct path
+        ax.annotate('', xy=(10.3, 5.2), xytext=(3.2, y_pos),
                     arrowprops=dict(
                         arrowstyle='->', color='#BDC3C7',
                         lw=1.2, linestyle='dashed',
-                        connectionstyle='arc3,rad=-0.2'
+                        connectionstyle='arc3,rad=-0.15'
                     ), zorder=1)
 
-    ax.text(6.5, 1.5, "c' (direct effects) = ns",
-            ha='center', fontsize=9, color='#95A5A6', style='italic')
+    ax.text(7.0, 2.7, "c' (direct effects) = ns",
+            ha='center', fontsize=11, color='#95A5A6', style='italic')
 
-    # Indirect effects
+    # Indirect effects box — at the very bottom, no overlap
     ind_lines = []
     for iv in ivs:
         if iv in med_data:
@@ -1035,26 +1059,26 @@ def fig_annex_mediation_comp_aut(df: pd.DataFrame,
             )
 
     if ind_lines:
-        rect = plt.Rectangle((0.3, 0.0), 11.4, 1.0,
+        rect = plt.Rectangle((0.3, 0.1), 12.4, 1.8,
                                facecolor='#FDFEFE',
                                edgecolor='#BDC3C7', linewidth=1)
         ax.add_patch(rect)
-        ax.text(6.0, 0.85,
+        ax.text(6.5, 1.75,
                 'Indirect effects (bootstrapped, 5,000 iter.):',
-                ha='center', fontsize=8.5,
+                ha='center', fontsize=11,
                 fontweight='bold', color='#2C3E50')
-        ax.text(6.0, 0.45,
+        ax.text(6.5, 1.2,
                 '  |  '.join(ind_lines),
-                ha='center', fontsize=8, color='#2C3E50')
-        ax.text(6.0, 0.12,
+                ha='center', fontsize=10.5, color='#2C3E50')
+        ax.text(6.5, 0.5,
                 'Separate bootstrapped mediation analyses. '
                 'Only effects with CI excluding zero shown as significant.',
-                ha='center', fontsize=7.5, color='#888888', style='italic')
+                ha='center', fontsize=10, color='#888888', style='italic')
 
     ax.set_title(
         'Mediation: AI Competence and Autonomy Perceptions '
         '→ Appreciation → Feedback Quality',
-        fontsize=11, pad=15
+        fontsize=15, pad=16
     )
     return _save(fig, 'fig_annex_mediation_comp_aut')
 
