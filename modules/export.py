@@ -603,25 +603,32 @@ def _write_sheet_c(ws, data: dict) -> None:
 
 def _write_hierarchical_sheet(ws, data: dict,
                                dvs: list, sheet_title: str) -> None:
-    """Hierarchical regression sheet with subtables per DV."""
+    """Hierarchical regression with step sub-headers per DV."""
     full  = data.get('full',  pd.DataFrame())
     recap = data.get('recap', pd.DataFrame())
 
-    def _add_labels(df):
+    def _clean(df):
         if df.empty or 'note' in df.columns:
             return df
         df = df.copy()
-        if 'Predictor' in df.columns:
-            idx = df.columns.get_loc('Predictor') + 1
-            df.insert(idx, 'Label',
-                      df['Predictor'].map(PREDICTOR_LABELS).fillna(
-                          df['Predictor']))
+        # Remove Label column — keep Predictor
         return df.drop(
-            columns=[c for c in ['Block','Scale'] if c in df.columns]
+            columns=[c for c in ['Label', 'Block', 'Scale'] if c in df.columns]
         )
 
-    full  = _add_labels(full)
-    recap = _add_labels(recap)
+    full  = _clean(full)
+    recap = _clean(recap)
+
+    # Step labels — detect from Bloc column
+    step_labels = {
+        '1': 'Simple regression — Tone only',
+        '2': 'Multiple regression — Tone + AI Perceptions',
+        '3': 'Multiple regression — Tone + AI Perceptions + Engagement',
+    }
+    # For Sheet E the last step label differs
+    if any(dv in dvs for dv in ['E3','E4','E5','E6']):
+        step_labels['3'] = 'Multiple regression — Tone + AI Perceptions + Feedback Quality'
+
     n_cols = max(
         len(full.columns)  if not full.empty  else 1,
         len(recap.columns) if not recap.empty else 1,
@@ -638,15 +645,47 @@ def _write_hierarchical_sheet(ws, data: dict,
         df_dv = full[full['DV'] == dv].copy()
         if df_dv.empty:
             continue
+
+        # DV title
         row = _write_section(
             ws, row, f'DV = {DV_LABELS.get(dv, dv)}',
             n_cols, primary=False
         )
         df_dv = df_dv.drop(columns=['DV'], errors='ignore')
-        row   = _write_df(ws, df_dv, row, color_p=True)
+
+        # Sub-headers per Bloc/step
+        if 'Bloc' in df_dv.columns:
+            blocs = df_dv['Bloc'].unique()
+            for bloc in sorted(blocs):
+                df_bloc = df_dv[df_dv['Bloc'] == bloc].copy()
+                df_bloc = df_bloc.drop(columns=['Bloc'], errors='ignore')
+
+                # Step sub-header — light grey
+                step_label = step_labels.get(str(bloc), f'Step {bloc}')
+                for col in range(1, n_cols + 1):
+                    cell      = ws.cell(row=row, column=col)
+                    cell.fill = PatternFill(
+                        start_color=C_STEP, end_color=C_STEP,
+                        fill_type='solid'
+                    )
+                    cell.font      = Font(bold=True, size=9, color='2C3E50')
+                    cell.alignment = Alignment(vertical='center')
+                ws.cell(row=row, column=1).value = step_label
+                try:
+                    ws.merge_cells(
+                        start_row=row, start_column=1,
+                        end_row=row,   end_column=n_cols
+                    )
+                except Exception:
+                    pass
+                ws.row_dimensions[row].height = 18
+                row += 1
+
+                row = _write_df(ws, df_bloc, row, color_p=True)
+        else:
+            row = _write_df(ws, df_dv, row, color_p=True)
 
     _autofit(ws)
-
 
 def _write_sheet_d(ws, data: dict) -> None:
     _write_hierarchical_sheet(
