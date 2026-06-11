@@ -397,6 +397,7 @@ def fig_path_tone_pp_pm(df: pd.DataFrame, results: dict) -> str:
             f"{'(ns)' if sig_str == 'ns' else sig_str}",
             ha='center', fontsize=11, color='#95A5A6', style='italic')
 
+    
     # Indirect effects box
     ind_lines = []
     for pp, pp_label in [
