@@ -1088,8 +1088,8 @@ def run_sheet_i(df: pd.DataFrame) -> dict:
         t_age, p_age = stats.ttest_ind(age_casual, age_formal, equal_var=False)
         rand_rows.append({
             "Test":           "t-test: age by condition",
-            "Group 1":        f"Casual M={age_friendly.mean():.1f}",
-            "Group 2":        f"Formal M={age_pro.mean():.1f}",
+            "Group 1":        f"Casual M={age_casual.mean():.1f}",
+            "Group 2":        f"Formal M={age_formal.mean():.1f}",
             "Statistic":      round(t_age, 3),
             "p":              round(p_age, 4),
             "Sig.":           _sig_label(p_age),
