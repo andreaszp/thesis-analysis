@@ -612,9 +612,8 @@ def _write_hierarchical_sheet(ws, data: dict,
         if df.empty or 'note' in df.columns:
             return df
         df = df.copy()
-        # Remove Label column — keep Predictor
         return df.drop(
-            columns=[c for c in ['Label', 'Block', 'Scale'] if c in df.columns]
+            columns=[c for c in ['Label', 'Scale'] if c in df.columns]
         )
 
     full  = _clean(full)
@@ -661,10 +660,7 @@ def _write_hierarchical_sheet(ws, data: dict,
             for bloc in sorted(blocs):
                 df_bloc = df_dv[df_dv[bloc_col] == bloc].copy()
                 df_bloc = df_bloc.drop(columns=[bloc_col], errors='ignore')
-                step_label = step_labels.get(str(int(bloc)), f'Step {bloc}')
-
-                # Step sub-header — light grey
-                step_label = step_labels.get(str(bloc), f'Step {bloc}')
+                step_label = step_labels.get(str(int(float(bloc))), f'Step {bloc}')
                 for col in range(1, n_cols + 1):
                     cell      = ws.cell(row=row, column=col)
                     cell.fill = PatternFill(
