@@ -39,6 +39,7 @@ C_NS       = 'E8E8E8'   # light grey  — ns
 C_MED_FULL = '1E8449'   # dark green  — full mediation
 C_MED_PART = 'A9DFBF'   # light green — partial mediation
 C_MULTICOL = 'F39C12'   # orange      — multicollinearity warning
+C_STEP     = 'D5D8DC'   # light grey  — step sub-headers
 
 # Block colors for Sheet K (Cleaned Data)
 BLOCK_COLORS = {
@@ -654,11 +655,13 @@ def _write_hierarchical_sheet(ws, data: dict,
         df_dv = df_dv.drop(columns=['DV'], errors='ignore')
 
         # Sub-headers per Bloc/step
-        if 'Bloc' in df_dv.columns:
-            blocs = df_dv['Bloc'].unique()
+        if 'Bloc' in df_dv.columns or 'Block' in df_dv.columns:
+            bloc_col = 'Block' if 'Block' in df_dv.columns else 'Bloc'
+            blocs = df_dv[bloc_col].unique()
             for bloc in sorted(blocs):
-                df_bloc = df_dv[df_dv['Bloc'] == bloc].copy()
-                df_bloc = df_bloc.drop(columns=['Bloc'], errors='ignore')
+                df_bloc = df_dv[df_dv[bloc_col] == bloc].copy()
+                df_bloc = df_bloc.drop(columns=[bloc_col], errors='ignore')
+                step_label = step_labels.get(str(int(bloc)), f'Step {bloc}')
 
                 # Step sub-header — light grey
                 step_label = step_labels.get(str(bloc), f'Step {bloc}')
@@ -908,6 +911,24 @@ def _write_sheet_supplementary(ws, supp: dict) -> None:
          'friendly_pro_comparison', True, True, False,
          'All differences non-significant (all p>.37). '
          'Consistent with correlational evidence but not confirmatory.'),
+        ('SECTION PP-1 — Simple Regressions: Each PP Item → Composite',
+         'pp1_simple_regressions', True, True, False,
+         'OLS simple regression. Each PP item tested separately predicting composite quality.'),
+        ('SECTION PP-2 — Multiple Regression: All PP Items → Composite',
+         'pp2_multiple_regression', True, True, False,
+         'OLS multiple regression. All PP items entered simultaneously predicting composite quality.'),
+        ('SECTION PP-3 — Mediation: Tone → PP → Composite',
+         'pp3_mediations', True, False, True,
+         'Bootstrap 5,000 iterations. Tests whether personality perceptions mediate tone → composite.'),
+        ('SECTION PP-4 — Serial Chain: Tone → PP → PM_score → Composite',
+         'pp4_serial_composite', True, False, True,
+         'Bootstrap 5,000 iterations. Full chain: tone → personality → manipulation → quality.'),
+        ('SECTION PP-5 — Serial Chain: Tone → PP → PM_score → E3/E4/E5',
+         'pp5_serial_eval', True, False, True,
+         'Bootstrap 5,000 iterations. Full chain: tone → personality → manipulation → evaluation.'),
+        ('SECTION PP-6 — Mediation: PP4 (Warm) → MP_score → E3',
+         'pp6_pp4_mp_e3', True, False, True,
+         'Bootstrap 5,000 iterations. Tests whether moral patiency mediates warmth → appreciation.'),
     ]
 
     # --- RECAP ---
