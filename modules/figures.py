@@ -1194,7 +1194,424 @@ def fig_annex_mediation_ma(df: pd.DataFrame, results: dict) -> str:
     )
     return _save(fig, 'fig_annex_mediation_ma')
 
+# ---------------------------------------------------------------------------
+# Figure PP-A — Standardised Effects of AI Perceptions on Feedback Quality
+# ---------------------------------------------------------------------------
+def fig_ai_perceptions_quality(df: pd.DataFrame, results: dict) -> str:
+    import statsmodels.formula.api as smf
 
+    ai_vars = ['PM_score','Comp_score','Ind1','Ind2','MA1','MA2','MP_score']
+    ai_labels = {
+        'PM_score':  'Perceived\nManipulation',
+        'Comp_score':'Competence',
+        'Ind1':      'Autonomy\n(Ind1)',
+        'Ind2':      'Autonomy\n(Ind2)',
+        'MA1':       'Moral\nGravity (MA1)',
+        'MA2':       'AI Moral\nResp. (MA2)',
+        'MP_score':  'Moral\nPatiency',
+    }
+
+    avail   = [v for v in ai_vars if v in df.columns and 'composite' in df.columns]
+    betas   = {}
+    p_vals  = {}
+    r2_val  = None
+
+    if avail:
+        try:
+            formula = f'composite ~ {" + ".join(avail)}'
+            model   = smf.ols(formula, data=df).fit()
+            r2_val  = round(model.rsquared, 3)
+            for v in avail:
+                betas[v]  = float(model.params[v])
+                p_vals[v] = float(model.pvalues[v])
+        except Exception as e:
+            log.warning(f'fig_ai_perceptions_quality: {e}')
+
+    # Fallback from results
+    if not betas:
+        try:
+            full_d = results.get('D', {}).get('full', pd.DataFrame())
+            if not full_d.empty:
+                sub = full_d[full_d['DV'] == 'composite']
+                last = sub['Block'].max()
+                sub_last = sub[sub['Block'] == last].set_index('Predictor')
+                for v in ai_vars:
+                    if v in sub_last.index:
+                        betas[v]  = float(sub_last.loc[v, 'β'])
+                        p_vals[v] = float(sub_last.loc[v, 'p'])
+        except Exception as e:
+            log.warning(f'fig_ai_perceptions_quality fallback: {e}')
+
+    if not betas:
+        log.warning('fig_ai_perceptions_quality: no data')
+        return ''
+
+    vars_plot  = [v for v in ai_vars if v in betas]
+    beta_vals  = [betas[v] for v in vars_plot]
+    p_list     = [p_vals[v] for v in vars_plot]
+    labels_plt = [ai_labels.get(v, v) for v in vars_plot]
+
+    colors = []
+    alphas = []
+    for b, p in zip(beta_vals, p_list):
+        sig = p < .05
+        colors.append('#1A5276' if b >= 0 else '#C0392B')
+        alphas.append(0.85 if sig else 0.3)
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+
+    bars = ax.barh(range(len(vars_plot)), beta_vals,
+                   color=colors, alpha=1.0)
+    for bar, alpha in zip(bars, alphas):
+        bar.set_alpha(alpha)
+
+    # Significance markers
+    for i, (b, p) in enumerate(zip(beta_vals, p_list)):
+        sig_s = _sig(p)
+        x_pos = b + (0.005 if b >= 0 else -0.005)
+        ha    = 'left' if b >= 0 else 'right'
+        col   = '#1E8449' if p < .05 else '#95A5A6'
+        ax.text(x_pos, i, sig_s, va='center', ha=ha,
+                fontsize=11, color=col, fontweight='bold')
+
+    ax.axvline(x=0, color='black', linewidth=0.8)
+    ax.set_yticks(range(len(vars_plot)))
+    ax.set_yticklabels(labels_plt, fontsize=11)
+    ax.set_xlabel('Standardised β coefficient', fontsize=12)
+    r2_str = f'  (R²={r2_val})' if r2_val else ''
+    ax.set_title(
+        f'Standardised Effects of AI Perceptions on Feedback Quality{r2_str}\n'
+        'Blue = positive, Red = negative. Faded = not significant (p≥.05)',
+        fontsize=14, fontweight='bold', pad=12
+    )
+    ax.set_axisbelow(True)
+
+    return _save(fig, 'fig_pp_ai_quality')
+
+
+# ---------------------------------------------------------------------------
+# Figure PP-B — AI Perceptions × Chatbot Evaluation Heatmap
+# ---------------------------------------------------------------------------
+def fig_ai_perceptions_heatmap(df: pd.DataFrame, results: dict) -> str:
+    import statsmodels.formula.api as smf
+
+    ai_vars = ['PM_score','Comp_score','Ind1','Ind2','MA1','MA2','MP_score']
+    ev_dvs  = ['E3','E4','E5','E6']
+    ai_labels = {
+        'PM_score':  'Perceived Manip.',
+        'Comp_score':'Competence',
+        'Ind1':      'Autonomy (Ind1)',
+        'Ind2':      'Autonomy (Ind2)',
+        'MA1':       'Moral Gravity (MA1)',
+        'MA2':       'AI Moral Resp. (MA2)',
+        'MP_score':  'Moral Patiency',
+    }
+    dv_labels = {
+        'E3': 'Appreciation\n(E3)',
+        'E4': 'Utility\n(E4)',
+        'E5': 'Reuse\n(E5)',
+        'E6': 'Preference\n(E6)',
+    }
+
+    avail_ai = [v for v in ai_vars if v in df.columns]
+    beta_mat = np.zeros((len(avail_ai), len(ev_dvs)))
+    p_mat    = np.ones((len(avail_ai),  len(ev_dvs)))
+
+    for j, dv in enumerate(ev_dvs):
+        if dv not in df.columns:
+            continue
+        # Try from results first
+        loaded = False
+        try:
+            full_e = results.get('E', {}).get('full', pd.DataFrame())
+            if not full_e.empty and 'DV' in full_e.columns:
+                sub      = full_e[full_e['DV'] == dv]
+                last     = sub['Block'].max()
+                sub_last = sub[sub['Block'] == last].set_index('Predictor')
+                for i, v in enumerate(avail_ai):
+                    if v in sub_last.index:
+                        beta_mat[i, j] = float(sub_last.loc[v, 'β'])
+                        p_mat[i, j]    = float(sub_last.loc[v, 'p'])
+                loaded = True
+        except Exception:
+            pass
+
+        if not loaded:
+            try:
+                formula = f'{dv} ~ {" + ".join(avail_ai)}'
+                model   = smf.ols(formula, data=df).fit()
+                for i, v in enumerate(avail_ai):
+                    beta_mat[i, j] = float(model.params[v])
+                    p_mat[i, j]    = float(model.pvalues[v])
+            except Exception as e:
+                log.warning(f'fig_ai_perceptions_heatmap {dv}: {e}')
+
+    # Color matrix — grey out ns
+    cmap_custom = plt.cm.RdBu_r
+    norm_val    = max(abs(beta_mat).max(), 0.01)
+
+    fig, ax = plt.subplots(figsize=(10, 7))
+
+    im = ax.imshow(
+        beta_mat, cmap=cmap_custom,
+        vmin=-norm_val, vmax=norm_val,
+        aspect='auto'
+    )
+
+    for i in range(len(avail_ai)):
+        for j in range(len(ev_dvs)):
+            b   = beta_mat[i, j]
+            p   = p_mat[i, j]
+            sig = _sig(p)
+
+            # Grey out ns cells
+            if p >= .05:
+                ax.add_patch(plt.Rectangle(
+                    (j-0.5, i-0.5), 1, 1,
+                    facecolor='#EEEEEE', alpha=0.7, zorder=2
+                ))
+
+            text_color = 'white' if abs(b) > norm_val*0.6 and p < .05 \
+                         else 'black'
+            ax.text(j, i, f'{b:.2f}\n{sig}',
+                    ha='center', va='center',
+                    fontsize=11, color=text_color,
+                    fontweight='bold' if p < .05 else 'normal',
+                    zorder=3)
+
+    ax.set_xticks(range(len(ev_dvs)))
+    ax.set_xticklabels(
+        [dv_labels.get(d, d) for d in ev_dvs], fontsize=12
+    )
+    ax.set_yticks(range(len(avail_ai)))
+    ax.set_yticklabels(
+        [ai_labels.get(v, v) for v in avail_ai], fontsize=11
+    )
+
+    cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label('Standardised β', fontsize=11)
+
+    ax.set_title(
+        'Standardised Effects of AI Perceptions on Chatbot Evaluation Dimensions\n'
+        'Grey cells = not significant (p≥.05). Values are standardised β coefficients.',
+        fontsize=14, fontweight='bold', pad=12
+    )
+
+    return _save(fig, 'fig_pp_ai_heatmap')
+
+
+# ---------------------------------------------------------------------------
+# Figure PP-C — Moral Perceptions, PM, and Chatbot Appreciation
+# ---------------------------------------------------------------------------
+def fig_moral_path_diagram(df: pd.DataFrame, results: dict) -> str:
+    import statsmodels.formula.api as smf
+
+    # Compute all paths from data
+    paths = {}
+
+    try:
+        # MA2 → MA1
+        m = smf.ols('MA1 ~ MA2', data=df).fit()
+        paths['MA2_MA1'] = {
+            'beta': round(float(m.params['MA2']), 3),
+            'p':    float(m.pvalues['MA2'])
+        }
+        # MA1 → E3 (controlling MA2)
+        m = smf.ols('E3 ~ MA1 + MA2', data=df).fit()
+        paths['MA1_E3'] = {
+            'beta': round(float(m.params['MA1']), 3),
+            'p':    float(m.pvalues['MA1'])
+        }
+        # MA1 → MP_score
+        m = smf.ols('MP_score ~ MA1', data=df).fit()
+        paths['MA1_MP'] = {
+            'beta': round(float(m.params['MA1']), 3),
+            'p':    float(m.pvalues['MA1'])
+        }
+        # MP_score → E3 (controlling MA1, PM)
+        m = smf.ols('E3 ~ MP_score + MA1 + PM_score', data=df).fit()
+        paths['MP_E3'] = {
+            'beta': round(float(m.params['MP_score']), 3),
+            'p':    float(m.pvalues['MP_score'])
+        }
+        # PM_score → E3 (controlling MA1, MP)
+        paths['PM_E3'] = {
+            'beta': round(float(m.params['PM_score']), 3),
+            'p':    float(m.pvalues['PM_score'])
+        }
+        # Moderation PM × MP → E3
+        df2       = df.copy()
+        df2['PM_c'] = df2['PM_score'] - df2['PM_score'].mean()
+        df2['MP_c'] = df2['MP_score'] - df2['MP_score'].mean()
+        m = smf.ols('E3 ~ PM_c + MP_c + PM_c:MP_c', data=df2).fit()
+        paths['PM_MP_mod'] = {
+            'beta': round(float(m.params['PM_c:MP_c']), 3),
+            'p':    float(m.pvalues['PM_c:MP_c'])
+        }
+    except Exception as e:
+        log.warning(f'fig_moral_path_diagram paths: {e}')
+
+    # Indirect effects from results
+    indirects = {}
+    try:
+        full_f = results.get('F', {}).get('full', pd.DataFrame())
+        if not full_f.empty:
+            # MA2 → MA1 → E3
+            row = full_f[
+                (full_f['IV'] == 'MA2') &
+                (full_f['Mediator'] == 'MA1') &
+                (full_f['DV'] == 'E3')
+            ]
+            if not row.empty:
+                r = row.iloc[0]
+                indirects['MA2_MA1_E3'] = {
+                    'ind':     round(float(r.get('Indirect', 0)), 3),
+                    'ci_low':  round(float(r.get('CI_low',   0)), 3),
+                    'ci_high': round(float(r.get('CI_high',  0)), 3),
+                }
+            # MA1 → MP → E3
+            row = full_f[
+                (full_f['IV'] == 'MA1') &
+                (full_f['Mediator'] == 'MP_score') &
+                (full_f['DV'] == 'E3')
+            ]
+            if not row.empty:
+                r = row.iloc[0]
+                indirects['MA1_MP_E3'] = {
+                    'ind':     round(float(r.get('Indirect', 0)), 3),
+                    'ci_low':  round(float(r.get('CI_low',   0)), 3),
+                    'ci_high': round(float(r.get('CI_high',  0)), 3),
+                }
+    except Exception as e:
+        log.warning(f'fig_moral_path_diagram indirects: {e}')
+
+    # ---- Draw ----
+    fig, ax = plt.subplots(figsize=(15, 9))
+    ax.set_xlim(0, 15)
+    ax.set_ylim(0, 9)
+    ax.axis('off')
+    fig.patch.set_facecolor('white')
+
+    def _box(x, y, w, h, text, color, fontsize=10):
+        rect = plt.Rectangle((x-w/2, y-h/2), w, h,
+                               facecolor=color, edgecolor='white',
+                               linewidth=2, zorder=3)
+        ax.add_patch(rect)
+        ax.text(x, y, text, ha='center', va='center',
+                fontsize=fontsize, color='white',
+                fontweight='bold', zorder=4,
+                multialignment='center')
+
+    def _arrow(x1, y1, x2, y2, label='', color='#2C3E50',
+               dashed=False, rad=0.0):
+        style = f'arc3,rad={rad}'
+        ax.annotate(
+            '', xy=(x2, y2), xytext=(x1, y1),
+            arrowprops=dict(
+                arrowstyle='->', color=color, lw=2.0,
+                linestyle='dashed' if dashed else 'solid',
+                connectionstyle=style
+            ), zorder=2
+        )
+        if label:
+            mx = (x1+x2)/2 + rad*0.5
+            my = (y1+y2)/2 + 0.18
+            ax.text(mx, my, label, ha='center', va='bottom',
+                    fontsize=10, color=color, fontweight='bold',
+                    bbox=dict(boxstyle='round,pad=0.2',
+                              facecolor='white', alpha=0.9,
+                              edgecolor='none'))
+
+    def _path_label(key, prefix='β='):
+        if key in paths:
+            b   = paths[key]['beta']
+            p   = paths[key]['p']
+            sig = _sig(p)
+            return f"{prefix}{b}{sig}"
+        return '—'
+
+    # Boxes
+    _box(2.0,  7.5, 2.6, 1.1, 'AI Moral\nResponsibility\n(MA2)',
+         '#6C3483', fontsize=10)
+    _box(6.5,  8.0, 2.6, 1.0, 'Moral Gravity\nAI→Human\n(MA1)',
+         '#884EA0', fontsize=10)
+    _box(6.5,  5.0, 2.6, 1.0, 'Moral Patiency\n(MP_score)',
+         COL_SIG, fontsize=10)
+    _box(2.0,  3.5, 2.6, 1.1, 'Perceived\nManipulation\n(PM_score)',
+         COL_NEG, fontsize=10)
+    _box(12.0, 5.5, 2.6, 1.1, 'Chatbot\nAppreciation\n(E3)',
+         COL_CASUAL, fontsize=10)
+
+    # MA2 → MA1
+    _arrow(3.3, 7.5, 5.2, 8.0,
+           _path_label('MA2_MA1'), '#6C3483')
+    # MA1 → E3
+    _arrow(7.8, 7.7, 10.7, 5.9,
+           _path_label('MA1_E3'), '#884EA0')
+    # MA1 → MP
+    _arrow(6.5, 7.5, 6.5, 5.5,
+           _path_label('MA1_MP'), '#1E8449')
+    # MP → E3
+    _arrow(7.8, 5.0, 10.7, 5.3,
+           _path_label('MP_E3'), COL_SIG)
+    # PM → E3
+    _arrow(3.3, 3.5, 10.7, 5.1,
+           _path_label('PM_E3'), COL_NEG, rad=-0.2)
+    # Moderation: MP → PM→E3 path (dashed arrow to midpoint)
+    ax.annotate(
+        '', xy=(6.8, 4.4), xytext=(6.5, 4.7),
+        arrowprops=dict(
+            arrowstyle='->', color=COL_SIG,
+            lw=1.5, linestyle='dashed'
+        ), zorder=2
+    )
+    mod_label = _path_label('PM_MP_mod', prefix='mod β=')
+    ax.text(5.2, 4.2, f'Moderation\n{mod_label}',
+            ha='center', fontsize=9.5,
+            color=COL_SIG, style='italic',
+            bbox=dict(boxstyle='round,pad=0.2',
+                      facecolor='white', alpha=0.9,
+                      edgecolor='none'))
+
+    # Indirect effects box
+    ind_lines = []
+    if 'MA2_MA1_E3' in indirects:
+        d = indirects['MA2_MA1_E3']
+        ind_lines.append(
+            f"MA2→MA1→E3: indirect={d['ind']}, "
+            f"CI[{d['ci_low']}, {d['ci_high']}] (full mediation)"
+        )
+    if 'MA1_MP_E3' in indirects:
+        d = indirects['MA1_MP_E3']
+        ind_lines.append(
+            f"MA1→MP→E3: indirect={d['ind']}, "
+            f"CI[{d['ci_low']}, {d['ci_high']}] (partial mediation)"
+        )
+
+    if ind_lines:
+        rect = plt.Rectangle((0.3, 0.1), 14.4, 1.3,
+                               facecolor='#FDFEFE',
+                               edgecolor='#BDC3C7', linewidth=1)
+        ax.add_patch(rect)
+        ax.text(7.5, 1.2,
+                'Indirect effects (bootstrapped, 5,000 iter.):',
+                ha='center', fontsize=10.5,
+                fontweight='bold', color='#2C3E50')
+        ax.text(7.5, 0.65,
+                '  |  '.join(ind_lines),
+                ha='center', fontsize=10, color='#2C3E50')
+        ax.text(7.5, 0.25,
+                'Moderation: effect of PM on E3 depends on level of MP (PM × MP interaction).',
+                ha='center', fontsize=9,
+                color='#666666', style='italic')
+
+    ax.set_title(
+        'Moral Perceptions, Perceived Manipulation, and Chatbot Appreciation\n'
+        'Blue paths = positive. Red paths = negative. '
+        'Dashed = moderation arrow.',
+        fontsize=14, fontweight='bold', pad=14
+    )
+    return _save(fig, 'fig_pp_moral_paths')
 # ---------------------------------------------------------------------------
 # Generate all figures
 # ---------------------------------------------------------------------------
