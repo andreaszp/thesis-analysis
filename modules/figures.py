@@ -513,7 +513,7 @@ def fig_quality_distribution(df: pd.DataFrame) -> str:
 def fig_path_pm_outcomes(df: pd.DataFrame, results: dict) -> str:
     outcomes = {
         'composite': {'dv': 'Feedback Quality\n(composite)', 'color': COL_SIG},
-        'E3':        {'dv': 'Appreciation\n(E3)',            'color': COL_CASUAL},
+        'E3':        {'dv': 'Enjoyment\n(E3)',            'color': COL_CASUAL},
         'E4':        {'dv': 'Utility\n(E4)',                 'color': '#6C3483'},
         'E5':        {'dv': 'Reuse Intention\n(E5)',         'color': COL_FORMAL},
     }
@@ -759,7 +759,7 @@ def fig_annex_evaluation_predictors(df: pd.DataFrame,
                                      results: dict) -> str:
     dvs    = ['E3', 'E4', 'E5']
     colors = [COL_CASUAL, '#6C3483', COL_FORMAL]
-    labels = ['Appreciation (E3)', 'Utility (E4)', 'Reuse Intention (E5)']
+    labels = ['Enjoyment (E3)', 'Utility (E4)', 'Reuse Intention (E5)']
 
     pred_order = [
         'tone', 'PM_score', 'Comp_score', 'Ind1', 'Ind2',
@@ -862,7 +862,7 @@ def fig_annex_personality_bubbles(df: pd.DataFrame) -> str:
                  'Approachable\n(PP3)', 'Warm\n(PP4)', 'Formal\n(PP5)']
     dv_vars   = ['E3', 'E4', 'E5', 'E6', 'composite',
                  'PM_score', 'engagement_score']
-    dv_labels = ['Appreciation\n(E3)', 'Utility\n(E4)',
+    dv_labels = ['Enjoyment\n(E3)', 'Utility\n(E4)',
                  'Reuse\n(E5)', 'Preference\n(E6)',
                  'Feedback\nQuality', 'Perceived\nManipulation',
                  'Engagement\nScore']
@@ -939,7 +939,7 @@ def fig_annex_personality_bubbles(df: pd.DataFrame) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Annexe C — Mediation: Competence-Autonomy → Appreciation → Quality
+# Annexe C — Mediation: Competence-Autonomy → Enjoyment → Quality
 # ---------------------------------------------------------------------------
 def fig_annex_mediation_comp_aut(df: pd.DataFrame,
                                   results: dict) -> str:
@@ -1004,7 +1004,7 @@ def fig_annex_mediation_comp_aut(df: pd.DataFrame,
                 multialignment='center')
 
     # Mediator and outcome — higher up to leave room for IV boxes and indirect box
-    _box(6.5, 7.5, 2.6, 1.0, 'Chatbot\nAppreciation\n(E3)',
+    _box(6.5, 7.5, 2.6, 1.0, 'Chatbot\nEnjoyment\n(E3)',
          COL_CASUAL, fontsize=11)
     _box(11.5, 5.5, 2.4, 1.2, 'Feedback\nQuality\n(composite)',
          COL_SIG, fontsize=11)
@@ -1077,7 +1077,7 @@ def fig_annex_mediation_comp_aut(df: pd.DataFrame,
 
     ax.set_title(
         'Mediation: AI Competence and Autonomy Perceptions '
-        '→ Appreciation → Feedback Quality',
+        '→ Enjoyment → Feedback Quality',
         fontsize=15, pad=16
     )
     return _save(fig, 'fig_annex_mediation_comp_aut')
@@ -1139,7 +1139,7 @@ def fig_annex_mediation_ma(df: pd.DataFrame, results: dict) -> str:
     _box(5.0, 5.0, 2.4, 1.0,
          'Moral Gravity\nAI→Human\n(MA1)', '#884EA0', fontsize=9)
     _box(8.5, 3.0, 2.2, 1.2,
-         'Chatbot\nAppreciation\n(E3)', COL_CASUAL, fontsize=10)
+         'Chatbot\nEnjoyment\n(E3)', COL_CASUAL, fontsize=10)
 
     # a: MA2 → MA1
     if med:
@@ -1189,7 +1189,7 @@ def fig_annex_mediation_ma(df: pd.DataFrame, results: dict) -> str:
                 ha='center', fontsize=8, color='#555555', style='italic')
 
     ax.set_title(
-        'Mediation: AI Moral Responsibility → Moral Gravity → Chatbot Appreciation',
+        'Mediation: AI Moral Responsibility → Moral Gravity → Chatbot Enjoyment',
         fontsize=11, pad=15
     )
     return _save(fig, 'fig_annex_mediation_ma')
@@ -1307,7 +1307,7 @@ def fig_ai_perceptions_heatmap(df: pd.DataFrame, results: dict) -> str:
         'MP_score':  'Moral Patiency',
     }
     dv_labels = {
-        'E3': 'Appreciation\n(E3)',
+        'E3': 'Enjoyment\n(E3)',
         'E4': 'Utility\n(E4)',
         'E5': 'Reuse\n(E5)',
         'E6': 'Preference\n(E6)',
@@ -1401,7 +1401,7 @@ def fig_ai_perceptions_heatmap(df: pd.DataFrame, results: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Figure PP-C — Moral Perceptions, PM, and Chatbot Appreciation
+# Figure PP-C — Moral Perceptions, PM, and Chatbot Enjoyment
 # ---------------------------------------------------------------------------
 def fig_moral_path_diagram(df: pd.DataFrame, results: dict) -> str:
     paths = {}
@@ -1538,7 +1538,7 @@ def fig_moral_path_diagram(df: pd.DataFrame, results: dict) -> str:
     _box(X_LEFT,  Y_PM,   'Perceived\nManipulation\n(PM_score)', COL_NEG)
     _box(X_MID,   Y_MP,   'Moral Patiency\n(MP_score)\n[mediator + moderator]',
          COL_SIG, fontsize=9)
-    _box(X_RIGHT, Y_E3,   'Chatbot\nAppreciation\n(E3)', COL_CASUAL, fontsize=11)
+    _box(X_RIGHT, Y_E3,   'Chatbot\nEnjoyment\n(E3)', COL_CASUAL, fontsize=11)
 
     # --- Arrows ---
 
@@ -1619,12 +1619,595 @@ def fig_moral_path_diagram(df: pd.DataFrame, results: dict) -> str:
                 ha='center', fontsize=10.5, color='#2C3E50')
 
     ax.set_title(
-        'Moral Perceptions, Perceived Manipulation, and Chatbot Appreciation\n'
+        'Moral Perceptions, Perceived Manipulation, and Chatbot Enjoyment\n'
         'Direct predictors of E3: Ind1 (+), PM_score (−), MA1 (−). '
         'MP_score moderates PM→E3 and mediates MA1→E3. MA2 predicts E3 via MA1.',
         fontsize=13, fontweight='bold', pad=14
     )
     return _save(fig, 'fig_pp_moral_paths')
+
+
+# ---------------------------------------------------------------------------
+# Figure NEW-1 — Tone → PP1/PP3/PP4 → Composite (parallel mediations)
+# ---------------------------------------------------------------------------
+def fig_tone_pp_quality(df: pd.DataFrame, results: dict) -> str:
+    """Path diagram: 3 parallel mediations tone → PP → composite."""
+
+    # Extract from supp results
+    pp3 = results.get('supp', {}).get('pp3_mediations', pd.DataFrame())
+
+    pp_items = [
+        ('PP1', 'Friendly\n(PP1)',     '#1A5276'),
+        ('PP3', 'Approachable\n(PP3)', '#2E86C1'),
+        ('PP4', 'Warm\n(PP4)',         '#117A65'),
+    ]
+
+    med_data = {}
+    for pp, _, _ in pp_items:
+        if not pp3.empty:
+            row = pp3[pp3['Path'].str.contains(pp, na=False)]
+            if not row.empty:
+                r = row.iloc[0]
+                med_data[pp] = {
+                    'a':        round(float(r.get('a', 0)), 3),
+                    'p_a':      float(r.get('p_a', 1)),
+                    'b':        round(float(r.get('b', 0)), 3),
+                    'p_b':      float(r.get('p_b', 1)),
+                    'indirect': round(float(r.get('Indirect', 0)), 3),
+                    'ci_low':   round(float(r.get('CI_low', 0)), 3),
+                    'ci_high':  round(float(r.get('CI_high', 0)), 3),
+                    'type':     str(r.get('Type', '—')),
+                }
+
+    fig, ax = plt.subplots(figsize=(14, 9))
+    ax.set_xlim(0, 14)
+    ax.set_ylim(0, 9)
+    ax.axis('off')
+    fig.patch.set_facecolor('white')
+
+    BW, BH = 2.6, 0.9
+
+    def _box(x, y, text, color, fontsize=10):
+        rect = plt.Rectangle((x-BW/2, y-BH/2), BW, BH,
+                               facecolor=color, edgecolor='white',
+                               linewidth=2, zorder=3)
+        ax.add_patch(rect)
+        ax.text(x, y, text, ha='center', va='center',
+                fontsize=fontsize, color='white',
+                fontweight='bold', zorder=4,
+                multialignment='center')
+
+    def _arrow(x1, y1, x2, y2, label='', color='#2C3E50',
+               dashed=False, rad=0.0):
+        ax.annotate('', xy=(x2, y2), xytext=(x1, y1),
+                    arrowprops=dict(
+                        arrowstyle='->', color=color, lw=1.8,
+                        linestyle='dashed' if dashed else 'solid',
+                        connectionstyle=f'arc3,rad={rad}'
+                    ), zorder=2)
+        if label:
+            mx = (x1+x2)/2
+            my = (y1+y2)/2 + 0.2
+            ax.text(mx, my, label, ha='center', va='bottom',
+                    fontsize=10, color=color, fontweight='bold',
+                    bbox=dict(boxstyle='round,pad=0.2',
+                              facecolor='white', alpha=0.9,
+                              edgecolor='none'))
+
+    # Nodes
+    _box(1.5, 4.5, 'Chatbot\nTone\n(Casual/Formal)', COL_CASUAL, fontsize=10)
+    _box(12.5, 4.5, 'Feedback\nQuality\n(composite)', COL_SIG, fontsize=10)
+
+    y_positions = [7.0, 4.5, 2.0]
+    for (pp, pp_label, color), y_pp in zip(pp_items, y_positions):
+        _box(7.0, y_pp, pp_label, color, fontsize=10)
+
+        d = med_data.get(pp, {})
+        if d:
+            # a path: tone → PP
+            a_lbl = f"a={d['a']}{_sig(d['p_a'])}"
+            _arrow(1.5 + BW/2, 4.5, 7.0 - BW/2, y_pp, a_lbl, color)
+
+            # b path: PP → composite
+            b_lbl = f"b={d['b']}{_sig(d['p_b'])}"
+            _arrow(7.0 + BW/2, y_pp, 12.5 - BW/2, 4.5, b_lbl, color)
+
+            # Indirect effect below PP box
+            ax.text(7.0, y_pp - BH/2 - 0.18,
+                    f"indirect={d['indirect']}, CI[{d['ci_low']}, {d['ci_high']}]",
+                    ha='center', fontsize=9, color=color, style='italic',
+                    bbox=dict(boxstyle='round,pad=0.2',
+                              facecolor='white', alpha=0.9,
+                              edgecolor='none'))
+
+    # Direct path (dashed, ns)
+    _arrow(1.5 + BW/2, 4.3, 12.5 - BW/2, 4.3,
+           "c'=ns", '#95A5A6', dashed=True, rad=-0.3)
+
+    ax.set_title(
+        'Tone Effects on Feedback Quality via Personality Perceptions\n'
+        'a = tone → PP coefficient, b = PP → composite coefficient. '
+        'Full mediation in all three paths. Bootstrap 5,000 iter.',
+        fontsize=14, fontweight='bold', pad=14
+    )
+    return _save(fig, 'fig_new_tone_pp_quality')
+
+
+# ---------------------------------------------------------------------------
+# Figure NEW-2 — Serial chain: Tone → PP → PM → E3/E4/E5
+# ---------------------------------------------------------------------------
+def fig_tone_pp_pm_eval(df: pd.DataFrame, results: dict) -> str:
+    """Serial chain path diagram: tone → PP → PM → E3/E4/E5."""
+
+    pp5 = results.get('supp', {}).get('pp5_serial_eval', pd.DataFrame())
+
+    # Build lookup: (pp, dv) → {indirect, ci_low, ci_high, sig}
+    chain_data = {}
+    if not pp5.empty:
+        for _, row in pp5.iterrows():
+            pp  = str(row.get('PP item', ''))
+            dv  = str(row.get('DV', ''))
+            sig = str(row.get('Sig.', 'ns'))
+            chain_data[(pp, dv)] = {
+                'indirect': round(float(row.get('Indirect', 0)), 3),
+                'ci_low':   round(float(row.get('CI_low',   0)), 3),
+                'ci_high':  round(float(row.get('CI_high',  0)), 3),
+                'sig':      sig,
+            }
+
+    pp_items = ['PP1', 'PP3', 'PP4']
+    pp_labels = {'PP1': 'Friendly\n(PP1)',
+                 'PP3': 'Approachable\n(PP3)',
+                 'PP4': 'Warm\n(PP4)'}
+    pp_colors = {'PP1': '#1A5276', 'PP3': '#2E86C1', 'PP4': '#117A65'}
+    dv_items  = ['E3', 'E4', 'E5']
+    dv_labels = {'E3': 'Enjoyment\n(E3)', 'E4': 'Utility\n(E4)',
+                 'E5': 'Reuse\n(E5)'}
+    dv_colors = {'E3': COL_CASUAL, 'E4': '#6C3483', 'E5': COL_FORMAL}
+
+    fig, ax = plt.subplots(figsize=(16, 10))
+    ax.set_xlim(0, 16)
+    ax.set_ylim(0, 10)
+    ax.axis('off')
+    fig.patch.set_facecolor('white')
+
+    BW, BH = 2.4, 0.85
+
+    def _box(x, y, text, color, fontsize=9.5):
+        rect = plt.Rectangle((x-BW/2, y-BH/2), BW, BH,
+                               facecolor=color, edgecolor='white',
+                               linewidth=2, zorder=3)
+        ax.add_patch(rect)
+        ax.text(x, y, text, ha='center', va='center',
+                fontsize=fontsize, color='white',
+                fontweight='bold', zorder=4,
+                multialignment='center')
+
+    def _arrow(x1, y1, x2, y2, color='#2C3E50',
+               dashed=False, rad=0.0, label=''):
+        ax.annotate('', xy=(x2, y2), xytext=(x1, y1),
+                    arrowprops=dict(
+                        arrowstyle='->', color=color, lw=1.6,
+                        linestyle='dashed' if dashed else 'solid',
+                        connectionstyle=f'arc3,rad={rad}'
+                    ), zorder=2)
+        if label:
+            mx = (x1+x2)/2
+            my = (y1+y2)/2 + 0.18
+            ax.text(mx, my, label, ha='center', fontsize=8.5,
+                    color=color, fontweight='bold',
+                    bbox=dict(boxstyle='round,pad=0.15',
+                              facecolor='white', alpha=0.9,
+                              edgecolor='none'))
+
+    # Nodes
+    _box(1.2, 5.0, 'Chatbot\nTone', COL_CASUAL, fontsize=10)
+    _box(8.0, 5.0, 'Perceived\nManipulation\n(PM_score)', COL_NEG, fontsize=9)
+
+    y_pp  = [7.5, 5.0, 2.5]
+    y_dv  = [7.5, 5.0, 2.5]
+
+    for pp, y in zip(pp_items, y_pp):
+        _box(4.5, y, pp_labels[pp], pp_colors[pp])
+
+    for dv, y in zip(dv_items, y_dv):
+        _box(13.0, y, dv_labels[dv], dv_colors[dv])
+
+    # Arrows tone → PP
+    for pp, y in zip(pp_items, y_pp):
+        _arrow(1.2 + BW/2, 5.0, 4.5 - BW/2, y, pp_colors[pp])
+
+    # Arrows PP → PM
+    for pp, y in zip(pp_items, y_pp):
+        _arrow(4.5 + BW/2, y, 8.0 - BW/2, 5.0, pp_colors[pp])
+
+    # Arrows PM → DV + indirect labels
+    for dv, y_d in zip(dv_items, y_dv):
+        _arrow(8.0 + BW/2, 5.0, 13.0 - BW/2, y_d,
+               dv_colors[dv], rad=0.0)
+
+        # Show significant indirects near DV
+        sig_lines = []
+        for pp in pp_items:
+            d = chain_data.get((pp, dv))
+            if d and d['sig'] == '*':
+                sig_lines.append(
+                    f"{pp}: {d['indirect']}, CI[{d['ci_low']}, {d['ci_high']}]"
+                )
+            elif d and d['sig'] == 'ns':
+                # dashed line for ns paths
+                pass
+
+        if sig_lines:
+            ax.text(13.0, y_d - BH/2 - 0.25,
+                    '\n'.join(sig_lines),
+                    ha='center', fontsize=8, color='#2C3E50',
+                    style='italic',
+                    bbox=dict(boxstyle='round,pad=0.2',
+                              facecolor='white', alpha=0.85,
+                              edgecolor='none'))
+
+    # Note on PP3 → PM → E3 (ns)
+    ax.text(8.0, 0.8,
+            'Note: tone → PP3 → PM → E3 not significant (CI includes 0)',
+            ha='center', fontsize=9, color='#95A5A6', style='italic')
+
+    ax.set_title(
+        'How Tone Shapes Evaluation Through Personality and Perceived Manipulation\n'
+        'Serial chain mediations: tone → PP → PM_score → E3/E4/E5. '
+        'Indirect effects bootstrapped (5,000 iter.).',
+        fontsize=14, fontweight='bold', pad=14
+    )
+    return _save(fig, 'fig_new_tone_pp_pm_eval')
+
+
+# ---------------------------------------------------------------------------
+# Figure NEW-3 — AI Perceptions → Engagement/E3 → Composite
+# ---------------------------------------------------------------------------
+def fig_ai_engagement_quality(df: pd.DataFrame, results: dict) -> str:
+    """Multi-level path diagram: AI perceptions → mediators → composite."""
+
+    full_f = results.get('F', {}).get('full', pd.DataFrame())
+
+    def _get_indirect(iv, med, dv):
+        if full_f.empty:
+            return None
+        row = full_f[
+            (full_f['IV'] == iv) &
+            (full_f['Mediator'] == med) &
+            (full_f['DV'] == dv)
+        ]
+        if row.empty:
+            return None
+        r = row.iloc[0]
+        return {
+            'indirect': round(float(r.get('Indirect', 0)), 3),
+            'ci_low':   round(float(r.get('CI_low',   0)), 3),
+            'ci_high':  round(float(r.get('CI_high',  0)), 3),
+            'sig':      str(r.get('Sig.', 'ns')),
+            'type':     str(r.get('Mediation_type', '—')),
+        }
+
+    # Key mediation paths
+    paths_e3 = {
+        'MA2':       _get_indirect('MA2',      'engagement_score', 'composite'),
+        'MP_score':  _get_indirect('MP_score', 'E3',               'composite'),
+        'Ind1':      _get_indirect('Ind1',     'E3',               'composite'),
+        'PM_score':  _get_indirect('PM_score', 'E3',               'composite'),
+        'Comp_score':_get_indirect('Comp_score','E3',              'composite'),
+        'Comp_E2':   _get_indirect('Comp_score','E2',              'composite'),
+    }
+
+    # Direct PM → composite from regression
+    pm_direct = None
+    try:
+        full_d = results.get('D', {}).get('full', pd.DataFrame())
+        if not full_d.empty:
+            sub = full_d[
+                (full_d['DV'] == 'composite') &
+                (full_d['Predictor'] == 'PM_score')
+            ]
+            if not sub.empty:
+                last = sub['Block'].max()
+                row  = sub[sub['Block'] == last].iloc[0]
+                pm_direct = {
+                    'beta': round(float(row.get('β', 0)), 3),
+                    'p':    float(row.get('p', 1)),
+                }
+    except Exception:
+        pass
+
+    # E3 → composite direct (from regression)
+    e3_direct = None
+    try:
+        if not full_d.empty:
+            sub = full_d[
+                (full_d['DV'] == 'composite') &
+                (full_d['Predictor'] == 'E3')
+            ]
+            if not sub.empty:
+                last = sub['Block'].max()
+                row  = sub[sub['Block'] == last].iloc[0]
+                e3_direct = {
+                    'beta': round(float(row.get('β', 0)), 3),
+                    'p':    float(row.get('p', 1)),
+                }
+    except Exception:
+        pass
+
+    fig, ax = plt.subplots(figsize=(16, 11))
+    ax.set_xlim(0, 16)
+    ax.set_ylim(0, 11)
+    ax.axis('off')
+    fig.patch.set_facecolor('white')
+
+    BW, BH = 2.4, 0.85
+
+    def _box(x, y, text, color, fontsize=9.5, width=None):
+        w = width or BW
+        rect = plt.Rectangle((x-w/2, y-BH/2), w, BH,
+                               facecolor=color, edgecolor='white',
+                               linewidth=2, zorder=3)
+        ax.add_patch(rect)
+        ax.text(x, y, text, ha='center', va='center',
+                fontsize=fontsize, color='white',
+                fontweight='bold', zorder=4,
+                multialignment='center')
+
+    def _arrow(x1, y1, x2, y2, label='', color='#2C3E50',
+               dashed=False, rad=0.0):
+        ax.annotate('', xy=(x2, y2), xytext=(x1, y1),
+                    arrowprops=dict(
+                        arrowstyle='->', color=color, lw=1.8,
+                        linestyle='dashed' if dashed else 'solid',
+                        connectionstyle=f'arc3,rad={rad}'
+                    ), zorder=2)
+        if label:
+            mx = (x1+x2)/2
+            my = (y1+y2)/2 + 0.2
+            ax.text(mx, my, label, ha='center', fontsize=9,
+                    color=color, fontweight='bold',
+                    bbox=dict(boxstyle='round,pad=0.2',
+                              facecolor='white', alpha=0.9,
+                              edgecolor='none'))
+
+    # Level 1 — AI perceptions (top)
+    ai_items = [
+        ('MA2',        'AI Moral\nResp. (MA2)',  '#6C3483', 1.5),
+        ('MP_score',   'Moral\nPatiency',        COL_SIG,   4.5),
+        ('Ind1',       'Autonomy\n(Ind1)',        '#1A5276', 7.5),
+        ('PM_score',   'Perceived\nManip.',      COL_NEG,   10.5),
+        ('Comp_score', 'Competence',             '#2980B9', 13.5),
+    ]
+    Y_AI   = 9.5
+    Y_MED  = 6.5   # mediators: engagement_score left, E3 right
+    Y_E2   = 6.5
+    Y_COMP = 2.5
+
+    for iv, label, color, x in ai_items:
+        _box(x, Y_AI, label, color)
+
+    # Level 2 — Mediators
+    _box(4.0,  Y_MED, 'Engagement\nScore', '#4A235A', fontsize=9)
+    _box(9.0,  Y_MED, 'Enjoyment\n(E3)',   COL_CASUAL, fontsize=9)
+    _box(13.5, Y_E2,  'Felt\nEngagement\n(E2)', '#784212', fontsize=8.5)
+
+    # Level 3 — Composite
+    _box(8.0, Y_COMP, 'Feedback Quality\n(composite)',
+         COL_SIG, fontsize=10, width=3.2)
+
+    # Arrows AI → mediators
+    # MA2 → engagement_score
+    _arrow(1.5, Y_AI - BH/2, 4.0, Y_MED + BH/2, '', '#6C3483')
+    d = paths_e3.get('MA2')
+    if d:
+        ax.text(2.5, (Y_AI + Y_MED)/2,
+                f"indirect={d['indirect']}\nCI[{d['ci_low']}, {d['ci_high']}]",
+                ha='center', fontsize=8, color='#6C3483', style='italic',
+                bbox=dict(boxstyle='round,pad=0.15', facecolor='white',
+                          alpha=0.85, edgecolor='none'))
+
+    # MP → E3
+    _arrow(4.5, Y_AI - BH/2, 9.0, Y_MED + BH/2, '', COL_SIG)
+    d = paths_e3.get('MP_score')
+    if d:
+        ax.text(6.5, (Y_AI + Y_MED)/2 + 0.2,
+                f"indirect={d['indirect']}\nCI[{d['ci_low']}, {d['ci_high']}]",
+                ha='center', fontsize=8, color=COL_SIG, style='italic',
+                bbox=dict(boxstyle='round,pad=0.15', facecolor='white',
+                          alpha=0.85, edgecolor='none'))
+
+    # Ind1 → E3
+    _arrow(7.5, Y_AI - BH/2, 9.0, Y_MED + BH/2, '', '#1A5276')
+    d = paths_e3.get('Ind1')
+    if d:
+        ax.text(8.0, (Y_AI + Y_MED)/2 + 0.5,
+                f"indirect={d['indirect']}\nCI[{d['ci_low']}, {d['ci_high']}]",
+                ha='center', fontsize=8, color='#1A5276', style='italic',
+                bbox=dict(boxstyle='round,pad=0.15', facecolor='white',
+                          alpha=0.85, edgecolor='none'))
+
+    # PM → E3
+    _arrow(10.5, Y_AI - BH/2, 9.0, Y_MED + BH/2, '', COL_NEG)
+    d = paths_e3.get('PM_score')
+    if d:
+        ax.text(10.0, (Y_AI + Y_MED)/2 + 0.2,
+                f"indirect={d['indirect']}\nCI[{d['ci_low']}, {d['ci_high']}]",
+                ha='center', fontsize=8, color=COL_NEG, style='italic',
+                bbox=dict(boxstyle='round,pad=0.15', facecolor='white',
+                          alpha=0.85, edgecolor='none'))
+
+    # PM → composite (direct, dashed)
+    if pm_direct:
+        lbl = f"β={pm_direct['beta']}{_sig(pm_direct['p'])}"
+        _arrow(10.5, Y_AI - BH/2, 8.0, Y_COMP + BH/2,
+               lbl, COL_NEG, dashed=True, rad=0.2)
+
+    # Comp → E3
+    _arrow(13.5, Y_AI - BH/2, 9.0, Y_MED + BH/2, '', '#2980B9')
+    d = paths_e3.get('Comp_score')
+    if d:
+        ax.text(11.8, (Y_AI + Y_MED)/2 + 0.2,
+                f"indirect={d['indirect']}\nCI[{d['ci_low']}, {d['ci_high']}]",
+                ha='center', fontsize=8, color='#2980B9', style='italic',
+                bbox=dict(boxstyle='round,pad=0.15', facecolor='white',
+                          alpha=0.85, edgecolor='none'))
+
+    # Comp → E2
+    _arrow(13.5, Y_AI - BH/2, 13.5, Y_E2 + BH/2, '', '#2980B9', rad=-0.3)
+    d = paths_e3.get('Comp_E2')
+    if d:
+        ax.text(14.5, (Y_AI + Y_E2)/2,
+                f"indirect={d['indirect']}\nCI[{d['ci_low']}, {d['ci_high']}]",
+                ha='center', fontsize=8, color='#2980B9', style='italic',
+                bbox=dict(boxstyle='round,pad=0.15', facecolor='white',
+                          alpha=0.85, edgecolor='none'))
+
+    # Mediators → composite
+    _arrow(4.0,  Y_MED - BH/2, 8.0, Y_COMP + BH/2, '', '#4A235A')
+    _arrow(9.0,  Y_MED - BH/2, 8.0, Y_COMP + BH/2, '', COL_CASUAL)
+    _arrow(13.5, Y_E2  - BH/2, 8.0, Y_COMP + BH/2, '', '#784212')
+
+    if e3_direct:
+        lbl = f"β={e3_direct['beta']}{_sig(e3_direct['p'])}"
+        ax.text(8.5, (Y_MED + Y_COMP)/2,
+                lbl, ha='center', fontsize=9.5,
+                color=COL_CASUAL, fontweight='bold',
+                bbox=dict(boxstyle='round,pad=0.2', facecolor='white',
+                          alpha=0.9, edgecolor='none'))
+
+    ax.set_title(
+        'How AI Perceptions Influence Feedback Quality: Direct and Indirect Pathways\n'
+        'Significant indirect effects only shown. Bootstrap 5,000 iter. '
+        'Blue = positive, Red = negative.',
+        fontsize=14, fontweight='bold', pad=14
+    )
+    return _save(fig, 'fig_new_ai_engagement_quality')
+
+
+# ---------------------------------------------------------------------------
+# Figure NEW-4 — Serial chain: Tone → PP4 → PM → Composite
+# ---------------------------------------------------------------------------
+def fig_tone_pp4_pm_quality(df: pd.DataFrame, results: dict) -> str:
+    """Simple horizontal serial chain: tone → PP4 → PM → composite."""
+
+    pp4 = results.get('supp', {}).get('pp4_serial_composite', pd.DataFrame())
+
+    chain = {}
+    if not pp4.empty:
+        row = pp4[pp4['Path'].str.contains('PP4', na=False)]
+        if not row.empty:
+            r = row.iloc[0]
+            chain = {
+                'indirect': round(float(r.get('Indirect', 0)), 3),
+                'ci_low':   round(float(r.get('CI_low',   0)), 3),
+                'ci_high':  round(float(r.get('CI_high',  0)), 3),
+                'sig':      str(r.get('Sig.', 'ns')),
+            }
+
+    # Get path coefficients from data
+    a1_beta, a1_p = '—', 1.0
+    a2_beta, a2_p = '—', 1.0
+    b_beta,  b_p  = '—', 1.0
+    c_prime       = '—'
+
+    try:
+        import statsmodels.formula.api as smf
+        m1 = smf.ols('PP4 ~ tone', data=df).fit()
+        a1_beta = round(float(m1.params['tone']), 3)
+        a1_p    = float(m1.pvalues['tone'])
+
+        m2 = smf.ols('PM_score ~ tone + PP4', data=df).fit()
+        a2_beta = round(float(m2.params['PP4']), 3)
+        a2_p    = float(m2.pvalues['PP4'])
+
+        if 'composite' in df.columns:
+            m3 = smf.ols('composite ~ tone + PP4 + PM_score', data=df).fit()
+            b_beta  = round(float(m3.params['PM_score']), 3)
+            b_p     = float(m3.pvalues['PM_score'])
+            c_prime = round(float(m3.params['tone']), 3)
+    except Exception as e:
+        log.warning(f'fig_tone_pp4_pm_quality paths: {e}')
+
+    fig, ax = plt.subplots(figsize=(14, 6))
+    ax.set_xlim(0, 14)
+    ax.set_ylim(0, 6)
+    ax.axis('off')
+    fig.patch.set_facecolor('white')
+
+    BW, BH = 2.6, 1.0
+
+    def _box(x, y, text, color, fontsize=10):
+        rect = plt.Rectangle((x-BW/2, y-BH/2), BW, BH,
+                               facecolor=color, edgecolor='white',
+                               linewidth=2, zorder=3)
+        ax.add_patch(rect)
+        ax.text(x, y, text, ha='center', va='center',
+                fontsize=fontsize, color='white',
+                fontweight='bold', zorder=4,
+                multialignment='center')
+
+    def _arrow(x1, y1, x2, y2, label='', color='#2C3E50',
+               dashed=False, rad=0.0):
+        ax.annotate('', xy=(x2, y2), xytext=(x1, y1),
+                    arrowprops=dict(
+                        arrowstyle='->', color=color, lw=2.0,
+                        linestyle='dashed' if dashed else 'solid',
+                        connectionstyle=f'arc3,rad={rad}'
+                    ), zorder=2)
+        if label:
+            mx = (x1+x2)/2
+            my = (y1+y2)/2 + 0.22
+            ax.text(mx, my, label, ha='center', va='bottom',
+                    fontsize=11, color=color, fontweight='bold',
+                    bbox=dict(boxstyle='round,pad=0.25',
+                              facecolor='white', alpha=0.9,
+                              edgecolor='none'))
+
+    # Nodes
+    _box(1.5,  3.0, 'Chatbot\nTone\n(Casual/Formal)', COL_CASUAL)
+    _box(5.5,  3.0, 'Warm\nPersonality\n(PP4)',        '#117A65')
+    _box(9.5,  3.0, 'Perceived\nManipulation\n(PM_score)', COL_NEG)
+    _box(13.0, 3.0, 'Feedback\nQuality\n(composite)',  COL_SIG)
+
+    # Arrows
+    a1_lbl = f"a₁={a1_beta}{_sig(a1_p)}" if a1_beta != '—' else 'a₁'
+    _arrow(1.5 + BW/2, 3.0, 5.5 - BW/2, 3.0, a1_lbl, '#117A65')
+
+    a2_lbl = f"a₂={a2_beta}{_sig(a2_p)}" if a2_beta != '—' else 'a₂'
+    _arrow(5.5 + BW/2, 3.0, 9.5 - BW/2, 3.0, a2_lbl, COL_NEG)
+
+    b_lbl = f"b={b_beta}{_sig(b_p)}" if b_beta != '—' else 'b'
+    _arrow(9.5 + BW/2, 3.0, 13.0 - BW/2, 3.0, b_lbl, COL_NEG)
+
+    # Direct effect c' (dashed, ns)
+    c_lbl = f"c'={c_prime} (ns)" if c_prime != '—' else "c'=ns"
+    _arrow(1.5 + BW/2, 2.6, 13.0 - BW/2, 2.6,
+           c_lbl, '#95A5A6', dashed=True, rad=-0.3)
+
+    # Indirect effect box
+    if chain:
+        rect = plt.Rectangle((2.0, 0.3), 10.0, 1.0,
+                               facecolor='#FDFEFE',
+                               edgecolor='#BDC3C7', linewidth=1)
+        ax.add_patch(rect)
+        ax.text(7.0, 1.1,
+                'Total indirect effect (bootstrapped, 5,000 iter.):',
+                ha='center', fontsize=10.5,
+                fontweight='bold', color='#2C3E50')
+        ax.text(7.0, 0.6,
+                f"indirect = {chain['indirect']}, "
+                f"95% CI [{chain['ci_low']}, {chain['ci_high']}]  "
+                f"({'significant' if chain['sig'] == '*' else 'ns'})",
+                ha='center', fontsize=10, color='#2C3E50')
+
+    ax.set_title(
+        'Tone Effects on Feedback Quality: The Warmth-Manipulation Chain\n'
+        'tone → PP4 (warm) → PM_score → composite. '
+        'a₁ = tone→PP4, a₂ = PP4→PM, b = PM→composite.',
+        fontsize=14, fontweight='bold', pad=14
+    )
+    return _save(fig, 'fig_new_tone_pp4_quality')
 # ---------------------------------------------------------------------------
 # Generate all figures
 # ---------------------------------------------------------------------------
@@ -1651,6 +2234,10 @@ def generate_all_figures(df: pd.DataFrame, results: dict) -> list:
         ('PP-A: AI perceptions → quality',   lambda: fig_ai_perceptions_quality(df, results)),
         ('PP-B: AI perceptions heatmap',     lambda: fig_ai_perceptions_heatmap(df, results)),
         ('PP-C: Moral path diagram',         lambda: fig_moral_path_diagram(df, results)),
+        ('NEW-1: tone → PP → quality',      lambda: fig_tone_pp_quality(df, results)),
+        ('NEW-2: tone → PP → PM → eval',    lambda: fig_tone_pp_pm_eval(df, results)),
+        ('NEW-3: AI perceptions → quality', lambda: fig_ai_engagement_quality(df, results)),
+        ('NEW-4: tone → PP4 → PM → quality',lambda: fig_tone_pp4_pm_quality(df, results)),
     ]
 
     for name, fn in funcs:
