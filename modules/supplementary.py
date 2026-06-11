@@ -521,3 +521,205 @@ def run_supplementary_analyses(df: pd.DataFrame) -> dict:
 
     log.info(f'Supplementary analyses complete: {list(results.keys())}')
     return results
+
+def run_pp_analyses(df: pd.DataFrame) -> dict:
+    """
+    Section PP — Personality Perceptions: Additional Analyses
+    PP-1: simple regressions each PP → composite
+    PP-2: multiple regression all PP → composite
+    PP-3: tone → each PP → composite (simple mediation)
+    PP-4: tone → each PP → PM_score → composite (serial chain)
+    PP-5: tone → each PP → PM_score → E3/E4/E5 (serial chain)
+    PP-6: PP4 → MP_score → E3 (simple mediation)
+    """
+    import statsmodels.formula.api as smf
+    results = {}
+
+    # ------------------------------------
+    # PP-1 Simple regressions PP → composite
+    # ------------------------------------
+    pp1_rows = []
+    for pp in ['PP1', 'PP2', 'PP3', 'PP4', 'PP5']:
+        if pp not in df.columns or 'composite' not in df.columns:
+            continue
+        try:
+            model = smf.ols(f'composite ~ {pp}', data=df).fit()
+            beta  = model.params[pp]
+            se    = model.bse[pp]
+            t     = model.tvalues[pp]
+            p     = model.pvalues[pp]
+            r2    = model.rsquared
+            pp1_rows.append({
+                'PP item':  pp,
+                'β':        round(float(beta), 3),
+                'SE':       round(float(se),   3),
+                't':        round(float(t),    3),
+                'p':        round(float(p),    4),
+                'R²':       round(float(r2),   3),
+                'Sig.':     _sig_label(p),
+            })
+        except Exception as e:
+            log.warning(f'PP-1 {pp}: {e}')
+    results['pp1_simple_regressions'] = pd.DataFrame(pp1_rows)
+
+    # ------------------------------------
+    # PP-2 Multiple regression all PP → composite
+    # ------------------------------------
+    pp_avail = [p for p in ['PP1','PP2','PP3','PP4','PP5']
+                if p in df.columns]
+    pp2_rows = []
+    if pp_avail and 'composite' in df.columns:
+        try:
+            formula = f'composite ~ {" + ".join(pp_avail)}'
+            model   = smf.ols(formula, data=df).fit()
+            r2      = model.rsquared
+            for pp in pp_avail:
+                beta = model.params[pp]
+                se   = model.bse[pp]
+                t    = model.tvalues[pp]
+                p    = model.pvalues[pp]
+                pp2_rows.append({
+                    'PP item':  pp,
+                    'β':        round(float(beta), 3),
+                    'SE':       round(float(se),   3),
+                    't':        round(float(t),    3),
+                    'p':        round(float(p),    4),
+                    'R²':       round(float(r2),   3),
+                    'Sig.':     _sig_label(p),
+                })
+        except Exception as e:
+            log.warning(f'PP-2: {e}')
+    results['pp2_multiple_regression'] = pd.DataFrame(pp2_rows)
+
+    # ------------------------------------
+    # PP-3 Mediation: tone → each PP → composite
+    # ------------------------------------
+    try:
+        from modules.analyses import _run_simple_mediation
+        pp3_rows = []
+        for pp in ['PP1', 'PP2', 'PP3', 'PP4']:
+            if pp not in df.columns:
+                continue
+            res = _run_simple_mediation(df, 'tone', pp, 'composite', 'pp')
+            if res:
+                pp3_rows.append({
+                    'Path':        f'tone → {pp} → composite',
+                    'a':           round(float(res['a']),        3),
+                    'p_a':         round(float(res['p_a']),      4),
+                    'b':           round(float(res['b']),        3),
+                    'p_b':         round(float(res['p_b']),      4),
+                    'c (total)':   round(float(res['c']),        3),
+                    "c' (direct)": round(float(res['c_prime']),  3),
+                    'Indirect':    round(float(res['Indirect']), 3),
+                    'CI_low':      round(float(res['CI_low']),   3),
+                    'CI_high':     round(float(res['CI_high']),  3),
+                    'Type':        res['Mediation_type'],
+                    'Sig.':        '*' if (res['CI_low'] > 0 or
+                                           res['CI_high'] < 0) else 'ns',
+                })
+        results['pp3_mediations'] = pd.DataFrame(pp3_rows)
+    except Exception as e:
+        log.warning(f'PP-3: {e}')
+        results['pp3_mediations'] = pd.DataFrame()
+
+    # ------------------------------------
+    # PP-4 Serial chain: tone → PP → PM_score → composite
+    # ------------------------------------
+    try:
+        from modules.analyses import _run_chain_mediation
+        pp4_rows = []
+        for pp in ['PP1', 'PP3', 'PP4']:
+            if pp not in df.columns:
+                continue
+            res = _run_chain_mediation(
+                df, 'tone', [pp, 'PM_score'], 'composite', 'pp'
+            )
+            if res:
+                pp4_rows.append({
+                    'Path':     f'tone → {pp} → PM_score → composite',
+                    'Indirect': round(float(res['Indirect']), 3),
+                    'CI_low':   round(float(res['CI_low']),   3),
+                    'CI_high':  round(float(res['CI_high']),  3),
+                    'Type':     res.get('Mediation_type', '—'),
+                    'Sig.':     '*' if (res['CI_low'] > 0 or
+                                        res['CI_high'] < 0) else 'ns',
+                })
+        results['pp4_serial_composite'] = pd.DataFrame(pp4_rows)
+    except Exception as e:
+        log.warning(f'PP-4: {e}')
+        results['pp4_serial_composite'] = pd.DataFrame()
+
+    # ------------------------------------
+    # PP-5 Serial chain: tone → PP → PM_score → E3/E4/E5
+    # ------------------------------------
+    try:
+        from modules.analyses import _run_chain_mediation
+        pp5_rows = []
+        for pp in ['PP1', 'PP3', 'PP4']:
+            if pp not in df.columns:
+                continue
+            for dv in ['E3', 'E4', 'E5']:
+                if dv not in df.columns:
+                    continue
+                res = _run_chain_mediation(
+                    df, 'tone', [pp, 'PM_score'], dv, 'pp'
+                )
+                if res:
+                    pp5_rows.append({
+                        'Path':     f'tone → {pp} → PM_score → {dv}',
+                        'PP item':  pp,
+                        'DV':       dv,
+                        'Indirect': round(float(res['Indirect']), 3),
+                        'CI_low':   round(float(res['CI_low']),   3),
+                        'CI_high':  round(float(res['CI_high']),  3),
+                        'Type':     res.get('Mediation_type', '—'),
+                        'Sig.':     '*' if (res['CI_low'] > 0 or
+                                            res['CI_high'] < 0) else 'ns',
+                    })
+        results['pp5_serial_eval'] = pd.DataFrame(pp5_rows)
+    except Exception as e:
+        log.warning(f'PP-5: {e}')
+        results['pp5_serial_eval'] = pd.DataFrame()
+
+    # ------------------------------------
+    # PP-6 Mediation: PP4 → MP_score → E3
+    # ------------------------------------
+    try:
+        from modules.analyses import _run_simple_mediation
+        pp6_rows = []
+        if all(c in df.columns for c in ['PP4', 'MP_score', 'E3']):
+            res = _run_simple_mediation(df, 'PP4', 'MP_score', 'E3', 'pp')
+            if res:
+                pp6_rows.append({
+                    'Path':        'PP4 → MP_score → E3',
+                    'a':           round(float(res['a']),        3),
+                    'p_a':         round(float(res['p_a']),      4),
+                    'b':           round(float(res['b']),        3),
+                    'p_b':         round(float(res['p_b']),      4),
+                    'c (total)':   round(float(res['c']),        3),
+                    "c' (direct)": round(float(res['c_prime']),  3),
+                    'Indirect':    round(float(res['Indirect']), 3),
+                    'CI_low':      round(float(res['CI_low']),   3),
+                    'CI_high':     round(float(res['CI_high']),  3),
+                    'Type':        res['Mediation_type'],
+                    'Sig.':        '*' if (res['CI_low'] > 0 or
+                                           res['CI_high'] < 0) else 'ns',
+                })
+        results['pp6_pp4_mp_e3'] = pd.DataFrame(pp6_rows)
+    except Exception as e:
+        log.warning(f'PP-6: {e}')
+        results['pp6_pp4_mp_e3'] = pd.DataFrame()
+
+    log.info(f'PP analyses complete: {list(results.keys())}')
+    return results
+
+
+def _sig_label(p):
+    try:
+        p = float(p)
+        if p < .001: return '***'
+        if p < .01:  return '**'
+        if p < .05:  return '*'
+        return 'ns'
+    except:
+        return '—'
