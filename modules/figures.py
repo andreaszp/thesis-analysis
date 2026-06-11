@@ -1404,17 +1404,8 @@ def fig_ai_perceptions_heatmap(df: pd.DataFrame, results: dict) -> str:
 # Figure PP-C — Moral Perceptions, PM, and Chatbot Appreciation
 # ---------------------------------------------------------------------------
 def fig_moral_path_diagram(df: pd.DataFrame, results: dict) -> str:
-    """
-    Single path diagram showing:
-    - Direct predictors of E3: Ind1 (+), PM_score (-), MA1 (-)
-    - MP_score as moderator of PM → E3
-    - MP_score as mediator of MA1 → E3
-    - MA2 as antecedent of MA1 → E3 (MA2 → MA1 → E3)
-    All coefficients computed from data.
-    """
     paths = {}
     try:
-        # Direct predictors of E3
         model_e3 = smf.ols(
             'E3 ~ Ind1 + PM_score + MA1 + MP_score', data=df
         ).fit()
@@ -1424,22 +1415,16 @@ def fig_moral_path_diagram(df: pd.DataFrame, results: dict) -> str:
                     'beta': round(float(model_e3.params[pred]), 3),
                     'p':    float(model_e3.pvalues[pred]),
                 }
-
-        # MA2 → MA1
         m_ma = smf.ols('MA1 ~ MA2', data=df).fit()
         paths['MA2_MA1'] = {
             'beta': round(float(m_ma.params['MA2']), 3),
             'p':    float(m_ma.pvalues['MA2']),
         }
-
-        # MA1 → MP_score (mediation path)
         m_mp = smf.ols('MP_score ~ MA1', data=df).fit()
         paths['MA1_MP'] = {
             'beta': round(float(m_mp.params['MA1']), 3),
             'p':    float(m_mp.pvalues['MA1']),
         }
-
-        # Moderation PM × MP → E3
         df2 = df.copy()
         df2['PM_c'] = df2['PM_score'] - df2['PM_score'].mean()
         df2['MP_c'] = df2['MP_score'] - df2['MP_score'].mean()
@@ -1451,12 +1436,10 @@ def fig_moral_path_diagram(df: pd.DataFrame, results: dict) -> str:
     except Exception as e:
         log.warning(f'fig_moral_path_diagram paths: {e}')
 
-    # Indirect effects from results
     indirects = {}
     try:
         full_f = results.get('F', {}).get('full', pd.DataFrame())
         if not full_f.empty:
-            # MA2 → MA1 → E3
             row = full_f[
                 (full_f['IV'] == 'MA2') &
                 (full_f['Mediator'] == 'MA1') &
@@ -1469,7 +1452,6 @@ def fig_moral_path_diagram(df: pd.DataFrame, results: dict) -> str:
                     'ci_low':  round(float(r.get('CI_low',   0)), 3),
                     'ci_high': round(float(r.get('CI_high',  0)), 3),
                 }
-            # MA1 → MP → E3
             row = full_f[
                 (full_f['IV'] == 'MA1') &
                 (full_f['Mediator'] == 'MP_score') &
@@ -1492,16 +1474,27 @@ def fig_moral_path_diagram(df: pd.DataFrame, results: dict) -> str:
             return f"{prefix}{b}{_sig(p)}"
         return '—'
 
-    fig, ax = plt.subplots(figsize=(16, 10))
-    ax.set_xlim(0, 16)
-    ax.set_ylim(0, 10)
+    # ---- Layout: clear zones, no overlap ----
+    # Left column (x=1.5): MA2 (top), MA1 (mid-high), Ind1 (mid-low), PM (bottom)
+    # Centre (x=8): MP_score
+    # Right (x=14.5): E3
+    # Indirect box at very bottom
+
+    fig, ax = plt.subplots(figsize=(18, 11))
+    ax.set_xlim(0, 18)
+    ax.set_ylim(0, 11)
     ax.axis('off')
     fig.patch.set_facecolor('white')
 
-    def _box(x, y, w, h, text, color, fontsize=10):
-        rect = plt.Rectangle((x-w/2, y-h/2), w, h,
-                               facecolor=color, edgecolor='white',
-                               linewidth=2, zorder=3)
+    BOX_W = 2.8
+    BOX_H = 1.1
+
+    def _box(x, y, text, color, fontsize=10):
+        rect = plt.Rectangle(
+            (x - BOX_W/2, y - BOX_H/2), BOX_W, BOX_H,
+            facecolor=color, edgecolor='white',
+            linewidth=2, zorder=3
+        )
         ax.add_patch(rect)
         ax.text(x, y, text, ha='center', va='center',
                 fontsize=fontsize, color='white',
@@ -1509,7 +1502,7 @@ def fig_moral_path_diagram(df: pd.DataFrame, results: dict) -> str:
                 multialignment='center')
 
     def _arrow(x1, y1, x2, y2, label='', color='#2C3E50',
-               dashed=False, rad=0.0):
+               dashed=False, rad=0.0, label_offset=(0, 0.22)):
         ax.annotate(
             '', xy=(x2, y2), xytext=(x1, y1),
             arrowprops=dict(
@@ -1519,109 +1512,117 @@ def fig_moral_path_diagram(df: pd.DataFrame, results: dict) -> str:
             ), zorder=2
         )
         if label:
-            mx = (x1+x2)/2 + rad*0.8
-            my = (y1+y2)/2 + 0.2
+            mx = (x1 + x2) / 2 + label_offset[0]
+            my = (y1 + y2) / 2 + label_offset[1]
             ax.text(mx, my, label, ha='center', va='bottom',
                     fontsize=10, color=color, fontweight='bold',
-                    bbox=dict(boxstyle='round,pad=0.2',
-                              facecolor='white', alpha=0.9,
+                    bbox=dict(boxstyle='round,pad=0.25',
+                              facecolor='white', alpha=0.92,
                               edgecolor='none'))
 
-    # --- Variable boxes ---
-    # Left column: predictors
-    _box(2.0, 8.5, 2.6, 1.0, 'AI Moral\nResponsibility\n(MA2)',
-         '#6C3483', fontsize=10)
-    _box(2.0, 6.0, 2.6, 1.0, 'Moral Gravity\nAI→Human\n(MA1)',
-         '#884EA0', fontsize=10)
-    _box(2.0, 3.5, 2.6, 1.0, 'Autonomy\n(Ind1)',
-         '#1A5276', fontsize=10)
-    _box(2.0, 1.5, 2.6, 1.0, 'Perceived\nManipulation\n(PM_score)',
-         COL_NEG, fontsize=10)
+    # --- Node positions (well spaced) ---
+    X_LEFT  = 2.0
+    X_MID   = 8.5
+    X_RIGHT = 15.5
 
-    # Centre: MP_score (mediator + moderator)
-    _box(8.0, 3.5, 2.8, 1.0, 'Moral Patiency\n(MP_score)\n[mediator + moderator]',
+    Y_MA2  = 9.5
+    Y_MA1  = 7.5
+    Y_IND1 = 5.2
+    Y_PM   = 3.0
+    Y_MP   = 5.8   # centre, between MA1 and Ind1
+    Y_E3   = 6.2   # outcome
+
+    _box(X_LEFT,  Y_MA2,  'AI Moral\nResponsibility\n(MA2)', '#6C3483')
+    _box(X_LEFT,  Y_MA1,  'Moral Gravity\nAI→Human\n(MA1)', '#884EA0')
+    _box(X_LEFT,  Y_IND1, 'Autonomy\n(Ind1)', '#1A5276')
+    _box(X_LEFT,  Y_PM,   'Perceived\nManipulation\n(PM_score)', COL_NEG)
+    _box(X_MID,   Y_MP,   'Moral Patiency\n(MP_score)\n[mediator + moderator]',
          COL_SIG, fontsize=9)
-
-    # Right: outcome
-    _box(14.0, 5.0, 2.6, 1.1, 'Chatbot\nAppreciation\n(E3)',
-         COL_CASUAL, fontsize=11)
+    _box(X_RIGHT, Y_E3,   'Chatbot\nAppreciation\n(E3)', COL_CASUAL, fontsize=11)
 
     # --- Arrows ---
-    # MA2 → MA1
-    _arrow(2.0, 8.0, 2.0, 6.55,
-           _lbl('MA2_MA1'), '#6C3483')
 
-    # MA1 → E3 (direct, negative)
-    _arrow(3.3, 6.0, 12.7, 5.3,
-           _lbl('MA1_E3'), '#884EA0', rad=-0.1)
+    # MA2 → MA1 (vertical, left column)
+    _arrow(X_LEFT, Y_MA2 - BOX_H/2,
+           X_LEFT, Y_MA1 + BOX_H/2,
+           _lbl('MA2_MA1'), '#6C3483',
+           label_offset=(0.6, 0.1))
 
-    # MA1 → MP (mediation path a)
-    _arrow(3.3, 5.7, 6.6, 3.8,
-           _lbl('MA1_MP'), '#1E8449')
+    # MA1 → E3 (direct, long curved arc above)
+    _arrow(X_LEFT + BOX_W/2, Y_MA1 + 0.2,
+           X_RIGHT - BOX_W/2, Y_E3 + 0.3,
+           _lbl('MA1_E3'), '#884EA0', rad=-0.25,
+           label_offset=(0, 0.3))
 
-    # MP → E3 (mediation path b)
-    _arrow(9.4, 3.8, 12.7, 4.7,
-           _lbl('MP_score_E3'), COL_SIG)
+    # MA1 → MP (diagonal down-right)
+    _arrow(X_LEFT + BOX_W/2, Y_MA1 - 0.2,
+           X_MID - BOX_W/2,  Y_MP + 0.1,
+           _lbl('MA1_MP'), '#1E8449',
+           label_offset=(0, 0.25))
 
-    # Ind1 → E3 (direct, positive)
-    _arrow(3.3, 3.5, 12.7, 4.85,
-           _lbl('Ind1_E3'), '#1A5276', rad=0.1)
+    # Ind1 → MP (horizontal)
+    _arrow(X_LEFT + BOX_W/2, Y_IND1,
+           X_MID - BOX_W/2,  Y_MP - 0.2,
+           _lbl('Ind1_E3'), '#1A5276',
+           label_offset=(0, 0.25))
 
-    # PM → E3 (direct, negative)
-    _arrow(3.3, 1.5, 12.7, 4.6,
-           _lbl('PM_score_E3'), COL_NEG, rad=-0.15)
+    # MP → E3 (horizontal right)
+    _arrow(X_MID + BOX_W/2, Y_MP,
+           X_RIGHT - BOX_W/2, Y_E3 - 0.2,
+           _lbl('MP_score_E3'), COL_SIG,
+           label_offset=(0, 0.25))
 
-    # MP moderates PM → E3 (dashed arrow to PM→E3 path midpoint)
-    ax.annotate(
-        '', xy=(8.5, 3.0), xytext=(8.0, 3.0),
-        arrowprops=dict(
-            arrowstyle='->', color=COL_SIG,
-            lw=1.5, linestyle='dashed'
-        ), zorder=2
-    )
+    # PM → E3 (long diagonal, below everything)
+    _arrow(X_LEFT + BOX_W/2, Y_PM,
+           X_RIGHT - BOX_W/2, Y_E3 - 0.5,
+           _lbl('PM_score_E3'), COL_NEG, rad=0.15,
+           label_offset=(0, -0.35))
+
+    # Moderation: MP moderates PM→E3
+    # Show as dashed arrow from MP_score downward toward PM→E3 path midpoint
+    _arrow(X_MID, Y_MP - BOX_H/2,
+           (X_LEFT + X_RIGHT) / 2 + 1.0, (Y_PM + Y_E3) / 2,
+           '', COL_SIG, dashed=True, rad=0.2)
     mod_lbl = _lbl('PM_MP_mod', prefix='mod β=')
-    ax.text(6.8, 2.5,
+    ax.text((X_LEFT + X_RIGHT)/2 + 1.5, (Y_PM + Y_E3)/2 - 0.5,
             f'Moderation\n{mod_lbl}',
-            ha='center', fontsize=9.5,
-            color=COL_SIG, style='italic',
-            bbox=dict(boxstyle='round,pad=0.2',
-                      facecolor='white', alpha=0.9,
-                      edgecolor='none'))
+            ha='center', fontsize=10, color=COL_SIG, style='italic',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                      alpha=0.92, edgecolor='none'), zorder=5)
 
-    # Indirect effects box
+    # --- Indirect effects box (bottom) ---
     ind_lines = []
     if 'MA2_MA1_E3' in indirects:
         d = indirects['MA2_MA1_E3']
         ind_lines.append(
             f"MA2→MA1→E3: indirect={d['ind']}, "
-            f"CI[{d['ci_low']}, {d['ci_high']}] (full mediation)"
+            f"CI[{d['ci_low']}, {d['ci_high']}]  (full mediation)"
         )
     if 'MA1_MP_E3' in indirects:
         d = indirects['MA1_MP_E3']
         ind_lines.append(
             f"MA1→MP→E3: indirect={d['ind']}, "
-            f"CI[{d['ci_low']}, {d['ci_high']}] (partial mediation)"
+            f"CI[{d['ci_low']}, {d['ci_high']}]  (partial mediation)"
         )
 
     if ind_lines:
-        rect = plt.Rectangle((0.3, 0.1), 15.4, 1.1,
+        rect = plt.Rectangle((0.3, 0.15), 17.4, 1.3,
                                facecolor='#FDFEFE',
                                edgecolor='#BDC3C7', linewidth=1)
         ax.add_patch(rect)
-        ax.text(8.0, 0.95,
+        ax.text(9.0, 1.25,
                 'Indirect effects (bootstrapped, 5,000 iter.):',
-                ha='center', fontsize=10.5,
+                ha='center', fontsize=11,
                 fontweight='bold', color='#2C3E50')
-        ax.text(8.0, 0.45,
+        ax.text(9.0, 0.65,
                 '  |  '.join(ind_lines),
-                ha='center', fontsize=10, color='#2C3E50')
+                ha='center', fontsize=10.5, color='#2C3E50')
 
     ax.set_title(
         'Moral Perceptions, Perceived Manipulation, and Chatbot Appreciation\n'
         'Direct predictors of E3: Ind1 (+), PM_score (−), MA1 (−). '
-        'MP_score moderates PM→E3 and mediates MA1→E3. '
-        'MA2 predicts E3 via MA1.',
-        fontsize=14, fontweight='bold', pad=14
+        'MP_score moderates PM→E3 and mediates MA1→E3. MA2 predicts E3 via MA1.',
+        fontsize=13, fontweight='bold', pad=14
     )
     return _save(fig, 'fig_pp_moral_paths')
 # ---------------------------------------------------------------------------
