@@ -37,7 +37,7 @@ QUALTRICS_SKIP_ROWS: list  = [1]
 # FL_21 = friendly, FL_22 = professional
 TONE_COL_RAW: str   = "FL_13_DO"
 TONE_MAP: dict      = {"FL_21": 1, "FL_22": 0}
-TONE_LABELS: dict   = {1: "Friendly", 0: "Professional"}
+TONE_LABELS: dict   = {1: "Casual", 0: "Formal"}
 
 # ---------------------------------------------------------------------------
 # COLUMN RENAMING
