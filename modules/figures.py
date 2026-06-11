@@ -1527,14 +1527,14 @@ def fig_moral_path_diagram(df: pd.DataFrame, results: dict) -> str:
 
     Y_MA2  = 9.5
     Y_MA1  = 7.5
-    Y_IND1 = 5.2
+    Y_IND1 = 1.5
     Y_PM   = 3.0
     Y_MP   = 5.8   # centre, between MA1 and Ind1
     Y_E3   = 6.2   # outcome
 
     _box(X_LEFT,  Y_MA2,  'AI Moral\nResponsibility\n(MA2)', '#6C3483')
     _box(X_LEFT,  Y_MA1,  'Moral Gravity\nAI→Human\n(MA1)', '#884EA0')
-    _box(X_LEFT,  Y_IND1, 'Autonomy\n(Ind1)', '#1A5276')
+    _box(X_LEFT, Y_IND1, 'Autonomy\n(Ind1)', '#1A5276')
     _box(X_LEFT,  Y_PM,   'Perceived\nManipulation\n(PM_score)', COL_NEG)
     _box(X_MID,   Y_MP,   'Moral Patiency\n(MP_score)\n[mediator + moderator]',
          COL_SIG, fontsize=9)
@@ -1560,11 +1560,11 @@ def fig_moral_path_diagram(df: pd.DataFrame, results: dict) -> str:
            _lbl('MA1_MP'), '#1E8449',
            label_offset=(0, 0.25))
 
-    # Ind1 → MP (horizontal)
+    # Ind1 → E3 (direct)
     _arrow(X_LEFT + BOX_W/2, Y_IND1,
-           X_MID - BOX_W/2,  Y_MP - 0.2,
-           _lbl('Ind1_E3'), '#1A5276',
-           label_offset=(0, 0.25))
+           X_RIGHT - BOX_W/2, Y_E3 - 0.6,
+           _lbl('Ind1_E3'), '#1A5276', rad=0.2,
+           label_offset=(0, -0.35))
 
     # MP → E3 (horizontal right)
     _arrow(X_MID + BOX_W/2, Y_MP,
